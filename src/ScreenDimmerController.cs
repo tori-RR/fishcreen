@@ -11,6 +11,7 @@ namespace SecondScreenDimmer
         internal const string TargetStableId = "DELA0E7";
         private const uint DimBrightnessValue = 0;
         private const int LeaveDelayMilliseconds = 1500;
+        private const int BrightnessFadeDurationMilliseconds = 300;
         private const int DailyFadeStartMilliseconds = 30000;
         private const int DailyFadeDurationMilliseconds = 5000;
         private const int MonitorRefreshMilliseconds = 3000;
@@ -22,6 +23,7 @@ namespace SecondScreenDimmer
         private readonly object queueSync = new object();
 
         private Task brightnessQueue;
+        private CancellationTokenSource brightnessFadeCancellation;
         private MonitorDescriptor target;
         private DateTime? outsideSince;
         private DateTime lastMouseMovementAt;
@@ -142,6 +144,7 @@ namespace SecondScreenDimmer
 
             cursorTimer.Stop();
             outsideSince = null;
+            CancelBrightnessFade();
             brightnessDimmed = false;
             HideOverlay();
 
@@ -276,16 +279,28 @@ namespace SecondScreenDimmer
             }
 
             brightnessDimmed = true;
-            PublishStatus("Dell 亮度已降至 0");
+            CancellationTokenSource fadeCancellation = BeginBrightnessFade();
+            PublishStatus("Dell 亮度正在渐暗…");
 
             EnqueueBrightness(delegate
             {
-                return brightnessService.DimTo(DimBrightnessValue);
+                try
+                {
+                    return brightnessService.FadeTo(
+                        DimBrightnessValue,
+                        BrightnessFadeDurationMilliseconds,
+                        fadeCancellation.Token);
+                }
+                finally
+                {
+                    ReleaseBrightnessFade(fadeCancellation);
+                }
             });
         }
 
         private void RestoreBrightness(bool userRequested)
         {
+            CancelBrightnessFade();
             bool wasDimmed = brightnessDimmed;
             brightnessDimmed = false;
 
@@ -417,6 +432,44 @@ namespace SecondScreenDimmer
 
                 return brightnessQueue;
             }
+        }
+
+        private CancellationTokenSource BeginBrightnessFade()
+        {
+            lock (queueSync)
+            {
+                if (brightnessFadeCancellation != null)
+                {
+                    brightnessFadeCancellation.Cancel();
+                }
+
+                brightnessFadeCancellation = new CancellationTokenSource();
+                return brightnessFadeCancellation;
+            }
+        }
+
+        private void CancelBrightnessFade()
+        {
+            lock (queueSync)
+            {
+                if (brightnessFadeCancellation != null)
+                {
+                    brightnessFadeCancellation.Cancel();
+                }
+            }
+        }
+
+        private void ReleaseBrightnessFade(CancellationTokenSource fadeCancellation)
+        {
+            lock (queueSync)
+            {
+                if (ReferenceEquals(brightnessFadeCancellation, fadeCancellation))
+                {
+                    brightnessFadeCancellation = null;
+                }
+            }
+
+            fadeCancellation.Dispose();
         }
 
         private void PublishStatusFromWorker(string status)

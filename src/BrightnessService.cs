@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace SecondScreenDimmer
 {
@@ -27,6 +29,9 @@ namespace SecondScreenDimmer
 
     internal sealed class BrightnessService
     {
+        private const int MaximumFadeSteps = 30;
+        private const double FadeCurveExponent = 2.4;
+
         private readonly object syncRoot = new object();
         private readonly MonitorService monitorService;
         private readonly string targetStableId;
@@ -56,10 +61,18 @@ namespace SecondScreenDimmer
             }
         }
 
-        internal OperationResult DimTo(uint requestedBrightness)
+        internal OperationResult FadeTo(
+            uint requestedBrightness,
+            int durationMilliseconds,
+            CancellationToken cancellationToken)
         {
             lock (syncRoot)
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return OperationResult.Ok("亮度渐变已取消");
+                }
+
                 MonitorDescriptor target = monitorService.FindByStableId(targetStableId);
                 if (target == null)
                 {
@@ -103,20 +116,79 @@ namespace SecondScreenDimmer
                     }
 
                     uint brightness = Math.Max(minimum, Math.Min(requestedBrightness, maximum));
-                    if (!NativeMethods.SetMonitorBrightness(physicalMonitors[0].Handle, brightness))
+                    if (brightness == current)
                     {
-                        int error = Marshal.GetLastWin32Error();
-                        if (capturedNow)
-                        {
-                            hasOriginalBrightness = false;
-                            RecoveryStore.Clear();
-                        }
-
-                        return OperationResult.Fail("设置 Dell 亮度失败：" + error);
+                        return OperationResult.Ok("Dell 亮度已经是 " + brightness);
                     }
 
-                    AppLog.Write("Dell brightness dimmed from " + current + " to " + brightness + ".");
-                    return OperationResult.Ok("Dell 亮度已降至 " + brightness);
+                    int distance = Math.Abs((int)current - (int)brightness);
+                    int stepCount = Math.Max(1, Math.Min(MaximumFadeSteps, distance));
+                    Stopwatch stopwatch = Stopwatch.StartNew();
+                    uint lastBrightness = current;
+                    bool brightnessChanged = false;
+
+                    for (int step = 1; step <= stepCount; step++)
+                    {
+                        double progress = (double)step / stepCount;
+                        double easedProgress = 1.0 - Math.Pow(
+                            1.0 - progress,
+                            FadeCurveExponent);
+                        int targetElapsed = (int)Math.Round(durationMilliseconds * progress);
+                        int remaining = targetElapsed - (int)stopwatch.ElapsedMilliseconds;
+
+                        if (remaining > 0 && cancellationToken.WaitHandle.WaitOne(remaining))
+                        {
+                            return OperationResult.Ok("亮度渐变已取消");
+                        }
+
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return OperationResult.Ok("亮度渐变已取消");
+                        }
+
+                        long delta = (long)brightness - current;
+                        uint nextBrightness = (uint)Math.Round(
+                            current + (delta * easedProgress));
+
+                        int remainingSteps = stepCount - step;
+                        if (brightness < current)
+                        {
+                            uint lowestAllowed = brightness + (uint)remainingSteps;
+                            nextBrightness = Math.Max(nextBrightness, lowestAllowed);
+                        }
+                        else
+                        {
+                            uint highestAllowed = brightness - (uint)remainingSteps;
+                            nextBrightness = Math.Min(nextBrightness, highestAllowed);
+                        }
+
+                        if (nextBrightness == lastBrightness)
+                        {
+                            continue;
+                        }
+
+                        if (!NativeMethods.SetMonitorBrightness(
+                            physicalMonitors[0].Handle,
+                            nextBrightness))
+                        {
+                            int error = Marshal.GetLastWin32Error();
+                            if (capturedNow && !brightnessChanged)
+                            {
+                                hasOriginalBrightness = false;
+                                RecoveryStore.Clear();
+                            }
+
+                            return OperationResult.Fail("设置 Dell 亮度失败：" + error);
+                        }
+
+                        brightnessChanged = true;
+                        lastBrightness = nextBrightness;
+                    }
+
+                    AppLog.Write(
+                        "Dell brightness faded from " + current + " to " + brightness +
+                        " in " + stopwatch.ElapsedMilliseconds + " ms.");
+                    return OperationResult.Ok("Dell 亮度已渐变至 " + brightness);
                 }
                 finally
                 {
