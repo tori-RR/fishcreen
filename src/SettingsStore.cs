@@ -93,6 +93,12 @@ namespace SecondScreenDimmer
                     settings.CustomProfile.IdleBlackoutMilliseconds = integerValue;
                 }
 
+                if (values.TryGetValue("CustomBlackoutRecoveryMilliseconds", out value) &&
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out integerValue))
+                {
+                    settings.CustomProfile.BlackoutRecoveryMilliseconds = integerValue;
+                }
+
                 if ((values.TryGetValue("CustomBrightnessFadeEnabled", out value) ||
                     values.TryGetValue("BrightnessFadeEnabled", out value)) &&
                     bool.TryParse(value, out booleanValue))
@@ -152,6 +158,9 @@ namespace SecondScreenDimmer
                             CultureInfo.InvariantCulture),
                         "CustomIdleBlackoutMilliseconds=" +
                             normalized.CustomProfile.IdleBlackoutMilliseconds.ToString(
+                            CultureInfo.InvariantCulture),
+                        "CustomBlackoutRecoveryMilliseconds=" +
+                            normalized.CustomProfile.BlackoutRecoveryMilliseconds.ToString(
                             CultureInfo.InvariantCulture),
                         "CustomBrightnessFadeEnabled=" +
                             normalized.CustomProfile.BrightnessFadeEnabled,

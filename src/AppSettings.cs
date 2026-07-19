@@ -15,6 +15,8 @@ namespace SecondScreenDimmer
         internal const int MaximumLeaveDelayMilliseconds = 10000;
         internal const int MinimumIdleBlackoutMilliseconds = 5000;
         internal const int MaximumIdleBlackoutMilliseconds = 300000;
+        internal const int MinimumBlackoutRecoveryMilliseconds = 100;
+        internal const int MaximumBlackoutRecoveryMilliseconds = 5000;
         internal const int MinimumBrightnessFadeSteps = 5;
         internal const int MaximumBrightnessFadeSteps = 60;
         internal const double MinimumBrightnessFadeExponent = 1.0;
@@ -22,6 +24,7 @@ namespace SecondScreenDimmer
 
         internal int LeaveDelayMilliseconds { get; set; }
         internal int IdleBlackoutMilliseconds { get; set; }
+        internal int BlackoutRecoveryMilliseconds { get; set; }
         internal bool BrightnessFadeEnabled { get; set; }
         internal bool BlackoutFadeEnabled { get; set; }
         internal int BrightnessFadeSteps { get; set; }
@@ -33,6 +36,7 @@ namespace SecondScreenDimmer
             {
                 LeaveDelayMilliseconds = LeaveDelayMilliseconds,
                 IdleBlackoutMilliseconds = IdleBlackoutMilliseconds,
+                BlackoutRecoveryMilliseconds = BlackoutRecoveryMilliseconds,
                 BrightnessFadeEnabled = BrightnessFadeEnabled,
                 BlackoutFadeEnabled = BlackoutFadeEnabled,
                 BrightnessFadeSteps = BrightnessFadeSteps,
@@ -49,6 +53,10 @@ namespace SecondScreenDimmer
             IdleBlackoutMilliseconds = Math.Max(
                 MinimumIdleBlackoutMilliseconds,
                 Math.Min(MaximumIdleBlackoutMilliseconds, IdleBlackoutMilliseconds));
+
+            BlackoutRecoveryMilliseconds = Math.Max(
+                MinimumBlackoutRecoveryMilliseconds,
+                Math.Min(MaximumBlackoutRecoveryMilliseconds, BlackoutRecoveryMilliseconds));
 
             BrightnessFadeSteps = Math.Max(
                 MinimumBrightnessFadeSteps,
@@ -131,6 +139,7 @@ namespace SecondScreenDimmer
             {
                 LeaveDelayMilliseconds = 1500,
                 IdleBlackoutMilliseconds = 30000,
+                BlackoutRecoveryMilliseconds = 500,
                 BrightnessFadeEnabled = true,
                 BlackoutFadeEnabled = true,
                 BrightnessFadeSteps = 30,
@@ -144,6 +153,7 @@ namespace SecondScreenDimmer
             {
                 LeaveDelayMilliseconds = 1500,
                 IdleBlackoutMilliseconds = 30000,
+                BlackoutRecoveryMilliseconds = 500,
                 BrightnessFadeEnabled = true,
                 BlackoutFadeEnabled = false,
                 BrightnessFadeSteps = 30,

@@ -18,6 +18,7 @@ namespace SecondScreenDimmer
         private BrightnessService brightnessService;
         private readonly OverlayForm overlay;
         private readonly System.Windows.Forms.Timer cursorTimer;
+        private readonly System.Windows.Forms.Timer overlayRecoveryTimer;
         private readonly object queueSync = new object();
 
         private Task brightnessQueue;
@@ -32,6 +33,8 @@ namespace SecondScreenDimmer
         private bool overlayVisible;
         private bool dailyFadeCompleted;
         private double overlayOpacity;
+        private DateTime overlayRecoveryStartedAt;
+        private double overlayRecoveryStartOpacity;
         private bool disposed;
         private DimmerMode mode;
         private AppSettings settings;
@@ -71,6 +74,10 @@ namespace SecondScreenDimmer
             cursorTimer = new System.Windows.Forms.Timer();
             cursorTimer.Interval = 75;
             cursorTimer.Tick += OnCursorTimerTick;
+
+            overlayRecoveryTimer = new System.Windows.Forms.Timer();
+            overlayRecoveryTimer.Interval = 16;
+            overlayRecoveryTimer.Tick += OnOverlayRecoveryTimerTick;
 
             mode = settings.Mode;
             lastMouseMovementAt = DateTime.UtcNow;
@@ -269,7 +276,7 @@ namespace SecondScreenDimmer
 
                 if (mode != DimmerMode.Movie)
                 {
-                    HideOverlay();
+                    StartOverlayRecovery();
                 }
             }
 
@@ -290,7 +297,7 @@ namespace SecondScreenDimmer
             if (isInsideTarget)
             {
                 outsideSince = null;
-                HideOverlay();
+                StartOverlayRecovery();
                 RestoreBrightness(false);
                 return;
             }
@@ -406,6 +413,7 @@ namespace SecondScreenDimmer
                 return;
             }
 
+            StopOverlayRecovery();
             bool newlyVisible = !overlayVisible;
             overlayVisible = true;
             dailyFadeCompleted = false;
@@ -426,6 +434,7 @@ namespace SecondScreenDimmer
                 return;
             }
 
+            StopOverlayRecovery();
             double clampedProgress = Math.Max(0.0, Math.Min(1.0, progress));
             bool starting = !overlayVisible;
             overlayVisible = true;
@@ -456,6 +465,8 @@ namespace SecondScreenDimmer
 
         private void HideOverlay()
         {
+            StopOverlayRecovery();
+
             if (!overlayVisible)
             {
                 return;
@@ -466,6 +477,61 @@ namespace SecondScreenDimmer
             overlayOpacity = 0.0;
             overlay.Uncover();
             AppLog.Write("Overlay hidden.");
+        }
+
+        private void StartOverlayRecovery()
+        {
+            if (!overlayVisible || overlayRecoveryTimer.Enabled)
+            {
+                return;
+            }
+
+            int duration = activeProfile.BlackoutRecoveryMilliseconds;
+            if (duration <= 0)
+            {
+                HideOverlay();
+                return;
+            }
+
+            overlayRecoveryStartedAt = DateTime.UtcNow;
+            overlayRecoveryStartOpacity = overlayOpacity;
+            dailyFadeCompleted = false;
+            overlayRecoveryTimer.Start();
+            AppLog.Write(
+                "Overlay recovery started with duration " + duration + " ms.");
+            PublishStatus(GetActiveModeName() + "：黑幕正在恢复");
+        }
+
+        private void OnOverlayRecoveryTimerTick(object sender, EventArgs eventArgs)
+        {
+            if (!overlayVisible)
+            {
+                StopOverlayRecovery();
+                return;
+            }
+
+            int duration = activeProfile.BlackoutRecoveryMilliseconds;
+            double progress = duration <= 0
+                ? 1.0
+                : (DateTime.UtcNow - overlayRecoveryStartedAt).TotalMilliseconds / duration;
+
+            if (progress >= 1.0)
+            {
+                HideOverlay();
+                return;
+            }
+
+            overlayOpacity = overlayRecoveryStartOpacity *
+                (1.0 - Math.Max(0.0, progress));
+            overlay.SetOverlayOpacity(overlayOpacity);
+        }
+
+        private void StopOverlayRecovery()
+        {
+            if (overlayRecoveryTimer.Enabled)
+            {
+                overlayRecoveryTimer.Stop();
+            }
         }
 
         private void ResetActivityTimers()
@@ -667,6 +733,7 @@ namespace SecondScreenDimmer
             StopAndRestore();
             disposed = true;
             cursorTimer.Dispose();
+            overlayRecoveryTimer.Dispose();
             overlay.Dispose();
         }
     }

@@ -18,6 +18,8 @@ namespace SecondScreenDimmer
         private readonly Label leaveDelayValueLabel;
         private readonly ModernSlider idleBlackoutTrackBar;
         private readonly Label idleBlackoutValueLabel;
+        private readonly ModernSlider blackoutRecoveryTrackBar;
+        private readonly Label blackoutRecoveryValueLabel;
         private readonly ModernSlider brightnessStepsTrackBar;
         private readonly Label brightnessStepsValueLabel;
         private readonly ModernSlider brightnessExponentTrackBar;
@@ -115,6 +117,18 @@ namespace SecondScreenDimmer
             idleBlackoutTrackBar.TickFrequency = 30;
             idleBlackoutTrackBar.Size = new Size(522, 34);
             idleBlackoutTrackBar.ValueChanged += OnProfileParameterChanged;
+
+            blackoutRecoveryValueLabel = CreateValueLabel(462, 366);
+            blackoutRecoveryTrackBar = new ModernSlider();
+            blackoutRecoveryTrackBar.AutoSize = false;
+            blackoutRecoveryTrackBar.Location = new Point(19, 389);
+            blackoutRecoveryTrackBar.Maximum = 50;
+            blackoutRecoveryTrackBar.Minimum = 1;
+            blackoutRecoveryTrackBar.SmallChange = 1;
+            blackoutRecoveryTrackBar.LargeChange = 5;
+            blackoutRecoveryTrackBar.TickFrequency = 5;
+            blackoutRecoveryTrackBar.Size = new Size(522, 34);
+            blackoutRecoveryTrackBar.ValueChanged += OnProfileParameterChanged;
 
             brightnessStepsValueLabel = CreateValueLabel(462, 366);
             brightnessStepsTrackBar = new ModernSlider();
@@ -242,6 +256,11 @@ namespace SecondScreenDimmer
                 "黑屏渐变",
                 "日常或自定义模式进入黑屏时使用 5 秒渐变",
                 blackoutFadeSwitch));
+            contentPanel.Controls.Add(CreateSliderCard(
+                "黑幕恢复时间",
+                "鼠标活动后，从当前黑幕平滑恢复到完全无遮罩",
+                blackoutRecoveryTrackBar,
+                blackoutRecoveryValueLabel));
 
             Controls.Add(titleLabel);
             Controls.Add(subtitleLabel);
@@ -413,6 +432,12 @@ namespace SecondScreenDimmer
                 idleBlackoutTrackBar.Minimum,
                 Math.Min(idleBlackoutTrackBar.Maximum, profile.IdleBlackoutMilliseconds / 1000));
 
+            blackoutRecoveryTrackBar.Value = Math.Max(
+                blackoutRecoveryTrackBar.Minimum,
+                Math.Min(
+                    blackoutRecoveryTrackBar.Maximum,
+                    profile.BlackoutRecoveryMilliseconds / 100));
+
             brightnessStepsTrackBar.Value = Math.Max(
                 brightnessStepsTrackBar.Minimum,
                 Math.Min(brightnessStepsTrackBar.Maximum, profile.BrightnessFadeSteps));
@@ -446,6 +471,10 @@ namespace SecondScreenDimmer
                 "0.0",
                 CultureInfo.CurrentCulture) + " 秒";
             idleBlackoutValueLabel.Text = idleBlackoutTrackBar.Value + " 秒";
+            blackoutRecoveryValueLabel.Text =
+                (blackoutRecoveryTrackBar.Value / 10.0).ToString(
+                "0.0",
+                CultureInfo.CurrentCulture) + " 秒";
             brightnessStepsValueLabel.Text = brightnessStepsTrackBar.Value + " 段";
             brightnessExponentValueLabel.Text = (brightnessExponentTrackBar.Value / 10.0).ToString(
                 "0.0",
@@ -495,6 +524,8 @@ namespace SecondScreenDimmer
             {
                 settings.CustomProfile.LeaveDelayMilliseconds = leaveDelayTrackBar.Value * 100;
                 settings.CustomProfile.IdleBlackoutMilliseconds = idleBlackoutTrackBar.Value * 1000;
+                settings.CustomProfile.BlackoutRecoveryMilliseconds =
+                    blackoutRecoveryTrackBar.Value * 100;
                 settings.CustomProfile.BrightnessFadeEnabled = brightnessFadeSwitch.Checked;
                 settings.CustomProfile.BlackoutFadeEnabled = blackoutFadeSwitch.Checked;
                 settings.CustomProfile.BrightnessFadeSteps = brightnessStepsTrackBar.Value;
