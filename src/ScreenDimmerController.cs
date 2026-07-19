@@ -10,7 +10,6 @@ namespace SecondScreenDimmer
     internal sealed class ScreenDimmerController : IDisposable
     {
         private const uint DimBrightnessValue = 0;
-        private const int BrightnessFadeDurationMilliseconds = 300;
         private const int DailyFadeDurationMilliseconds = 5000;
         private const int MonitorRefreshMilliseconds = 3000;
 
@@ -107,7 +106,7 @@ namespace SecondScreenDimmer
             SettingsStore.Save(settings);
             ResetActivityTimers();
             HideOverlay();
-            RestoreBrightness(false);
+            RestoreBrightness(true);
 
             if (mode != DimmerMode.Off)
             {
@@ -139,7 +138,8 @@ namespace SecondScreenDimmer
             ResetActivityTimers();
 
             BrightnessService previousService = brightnessService;
-            bool shouldRestorePrevious = brightnessDimmed || targetChanged;
+            bool shouldRestorePrevious =
+                brightnessDimmed || targetChanged || HasActiveBrightnessFade();
             brightnessDimmed = false;
 
             if (shouldRestorePrevious)
@@ -181,7 +181,7 @@ namespace SecondScreenDimmer
             if (target == null)
             {
                 HideOverlay();
-                RestoreBrightness(false);
+                RestoreBrightness(true);
                 PublishStatus("未找到已选择的屏幕");
             }
             else if (overlayVisible)
@@ -363,8 +363,9 @@ namespace SecondScreenDimmer
             brightnessDimmed = true;
             CancellationTokenSource fadeCancellation = BeginBrightnessFade();
             BrightnessService service = brightnessService;
-            bool fadeEnabled = activeProfile.BrightnessFadeEnabled;
-            int fadeSteps = activeProfile.BrightnessFadeSteps;
+            int fadeDuration = activeProfile.BrightnessFadeDurationMilliseconds;
+            bool fadeEnabled = activeProfile.BrightnessFadeEnabled && fadeDuration > 0;
+            int fadeFrames = activeProfile.BrightnessFadeFrames;
             double fadeExponent = activeProfile.BrightnessFadeExponent;
             PublishStatus(fadeEnabled ? "目标屏幕亮度正在渐暗…" : "正在降低目标屏幕亮度…");
 
@@ -374,9 +375,9 @@ namespace SecondScreenDimmer
                 {
                     return service.FadeTo(
                         DimBrightnessValue,
-                        BrightnessFadeDurationMilliseconds,
+                        fadeDuration,
                         fadeEnabled,
-                        fadeSteps,
+                        fadeFrames,
                         fadeExponent,
                         fadeCancellation.Token);
                 }
@@ -387,22 +388,46 @@ namespace SecondScreenDimmer
             });
         }
 
-        private void RestoreBrightness(bool userRequested)
+        private void RestoreBrightness(bool immediate)
         {
-            CancelBrightnessFade();
             bool wasDimmed = brightnessDimmed;
-            brightnessDimmed = false;
-
-            if (!wasDimmed && !userRequested)
+            if (!wasDimmed && !immediate)
             {
                 return;
             }
 
-            PublishStatus("正在恢复副屏亮度…");
+            CancelBrightnessFade();
+            brightnessDimmed = false;
+
             BrightnessService service = brightnessService;
+
+            if (immediate || activeProfile.BrightnessRecoveryMilliseconds <= 0)
+            {
+                PublishStatus("正在恢复副屏亮度…");
+                EnqueueBrightness(delegate
+                {
+                    return service.Restore();
+                });
+                return;
+            }
+
+            CancellationTokenSource fadeCancellation = BeginBrightnessFade();
+            int duration = activeProfile.BrightnessRecoveryMilliseconds;
+            int frames = activeProfile.BrightnessRecoveryFrames;
+            PublishStatus("副屏亮度正在渐变恢复…");
             EnqueueBrightness(delegate
             {
-                return service.Restore();
+                try
+                {
+                    return service.RestoreGradually(
+                        duration,
+                        frames,
+                        fadeCancellation.Token);
+                }
+                finally
+                {
+                    ReleaseBrightnessFade(fadeCancellation);
+                }
             });
         }
 
@@ -646,6 +671,14 @@ namespace SecondScreenDimmer
                 {
                     brightnessFadeCancellation.Cancel();
                 }
+            }
+        }
+
+        private bool HasActiveBrightnessFade()
+        {
+            lock (queueSync)
+            {
+                return brightnessFadeCancellation != null;
             }
         }
 

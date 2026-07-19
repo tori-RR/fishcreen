@@ -17,17 +17,26 @@ namespace SecondScreenDimmer
         internal const int MaximumIdleBlackoutMilliseconds = 300000;
         internal const int MinimumBlackoutRecoveryMilliseconds = 100;
         internal const int MaximumBlackoutRecoveryMilliseconds = 5000;
-        internal const int MinimumBrightnessFadeSteps = 5;
-        internal const int MaximumBrightnessFadeSteps = 60;
+        internal const int MinimumBrightnessRecoveryMilliseconds = 0;
+        internal const int MaximumBrightnessRecoveryMilliseconds = 1000;
+        internal const int MinimumBrightnessRecoveryFrames = 1;
+        internal const int MaximumBrightnessRecoveryFrames = 30;
+        internal const int MinimumBrightnessFadeDurationMilliseconds = 0;
+        internal const int MaximumBrightnessFadeDurationMilliseconds = 3000;
+        internal const int MinimumBrightnessFadeFrames = 5;
+        internal const int MaximumBrightnessFadeFrames = 60;
         internal const double MinimumBrightnessFadeExponent = 1.0;
         internal const double MaximumBrightnessFadeExponent = 4.0;
 
         internal int LeaveDelayMilliseconds { get; set; }
         internal int IdleBlackoutMilliseconds { get; set; }
         internal int BlackoutRecoveryMilliseconds { get; set; }
+        internal int BrightnessRecoveryMilliseconds { get; set; }
+        internal int BrightnessRecoveryFrames { get; set; }
+        internal int BrightnessFadeDurationMilliseconds { get; set; }
         internal bool BrightnessFadeEnabled { get; set; }
         internal bool BlackoutFadeEnabled { get; set; }
-        internal int BrightnessFadeSteps { get; set; }
+        internal int BrightnessFadeFrames { get; set; }
         internal double BrightnessFadeExponent { get; set; }
 
         internal DimmerProfile Clone()
@@ -37,9 +46,12 @@ namespace SecondScreenDimmer
                 LeaveDelayMilliseconds = LeaveDelayMilliseconds,
                 IdleBlackoutMilliseconds = IdleBlackoutMilliseconds,
                 BlackoutRecoveryMilliseconds = BlackoutRecoveryMilliseconds,
+                BrightnessRecoveryMilliseconds = BrightnessRecoveryMilliseconds,
+                BrightnessRecoveryFrames = BrightnessRecoveryFrames,
+                BrightnessFadeDurationMilliseconds = BrightnessFadeDurationMilliseconds,
                 BrightnessFadeEnabled = BrightnessFadeEnabled,
                 BlackoutFadeEnabled = BlackoutFadeEnabled,
-                BrightnessFadeSteps = BrightnessFadeSteps,
+                BrightnessFadeFrames = BrightnessFadeFrames,
                 BrightnessFadeExponent = BrightnessFadeExponent
             };
         }
@@ -58,9 +70,25 @@ namespace SecondScreenDimmer
                 MinimumBlackoutRecoveryMilliseconds,
                 Math.Min(MaximumBlackoutRecoveryMilliseconds, BlackoutRecoveryMilliseconds));
 
-            BrightnessFadeSteps = Math.Max(
-                MinimumBrightnessFadeSteps,
-                Math.Min(MaximumBrightnessFadeSteps, BrightnessFadeSteps));
+            BrightnessRecoveryMilliseconds = Math.Max(
+                MinimumBrightnessRecoveryMilliseconds,
+                Math.Min(
+                    MaximumBrightnessRecoveryMilliseconds,
+                    BrightnessRecoveryMilliseconds));
+
+            BrightnessRecoveryFrames = Math.Max(
+                MinimumBrightnessRecoveryFrames,
+                Math.Min(MaximumBrightnessRecoveryFrames, BrightnessRecoveryFrames));
+
+            BrightnessFadeDurationMilliseconds = Math.Max(
+                MinimumBrightnessFadeDurationMilliseconds,
+                Math.Min(
+                    MaximumBrightnessFadeDurationMilliseconds,
+                    BrightnessFadeDurationMilliseconds));
+
+            BrightnessFadeFrames = Math.Max(
+                MinimumBrightnessFadeFrames,
+                Math.Min(MaximumBrightnessFadeFrames, BrightnessFadeFrames));
 
             BrightnessFadeExponent = Math.Max(
                 MinimumBrightnessFadeExponent,
@@ -140,9 +168,12 @@ namespace SecondScreenDimmer
                 LeaveDelayMilliseconds = 1500,
                 IdleBlackoutMilliseconds = 30000,
                 BlackoutRecoveryMilliseconds = 500,
+                BrightnessRecoveryMilliseconds = 500,
+                BrightnessRecoveryFrames = 5,
+                BrightnessFadeDurationMilliseconds = 300,
                 BrightnessFadeEnabled = true,
                 BlackoutFadeEnabled = true,
-                BrightnessFadeSteps = 30,
+                BrightnessFadeFrames = 30,
                 BrightnessFadeExponent = 2.4
             };
         }
@@ -154,9 +185,12 @@ namespace SecondScreenDimmer
                 LeaveDelayMilliseconds = 1500,
                 IdleBlackoutMilliseconds = 30000,
                 BlackoutRecoveryMilliseconds = 500,
+                BrightnessRecoveryMilliseconds = 500,
+                BrightnessRecoveryFrames = 5,
+                BrightnessFadeDurationMilliseconds = 300,
                 BrightnessFadeEnabled = true,
                 BlackoutFadeEnabled = false,
-                BrightnessFadeSteps = 30,
+                BrightnessFadeFrames = 30,
                 BrightnessFadeExponent = 2.4
             };
         }

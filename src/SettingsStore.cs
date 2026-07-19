@@ -99,6 +99,25 @@ namespace SecondScreenDimmer
                     settings.CustomProfile.BlackoutRecoveryMilliseconds = integerValue;
                 }
 
+                if (values.TryGetValue("CustomBrightnessRecoveryMilliseconds", out value) &&
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out integerValue))
+                {
+                    settings.CustomProfile.BrightnessRecoveryMilliseconds = integerValue;
+                }
+
+                if ((values.TryGetValue("CustomBrightnessRecoveryFrames", out value) ||
+                    values.TryGetValue("CustomBrightnessRecoverySteps", out value)) &&
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out integerValue))
+                {
+                    settings.CustomProfile.BrightnessRecoveryFrames = integerValue;
+                }
+
+                if (values.TryGetValue("CustomBrightnessFadeDurationMilliseconds", out value) &&
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out integerValue))
+                {
+                    settings.CustomProfile.BrightnessFadeDurationMilliseconds = integerValue;
+                }
+
                 if ((values.TryGetValue("CustomBrightnessFadeEnabled", out value) ||
                     values.TryGetValue("BrightnessFadeEnabled", out value)) &&
                     bool.TryParse(value, out booleanValue))
@@ -113,10 +132,11 @@ namespace SecondScreenDimmer
                     settings.CustomProfile.BlackoutFadeEnabled = booleanValue;
                 }
 
-                if (values.TryGetValue("CustomBrightnessFadeSteps", out value) &&
+                if ((values.TryGetValue("CustomBrightnessFadeFrames", out value) ||
+                    values.TryGetValue("CustomBrightnessFadeSteps", out value)) &&
                     int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out integerValue))
                 {
-                    settings.CustomProfile.BrightnessFadeSteps = integerValue;
+                    settings.CustomProfile.BrightnessFadeFrames = integerValue;
                 }
 
                 if (values.TryGetValue("CustomBrightnessFadeExponent", out value) &&
@@ -162,12 +182,21 @@ namespace SecondScreenDimmer
                         "CustomBlackoutRecoveryMilliseconds=" +
                             normalized.CustomProfile.BlackoutRecoveryMilliseconds.ToString(
                             CultureInfo.InvariantCulture),
+                        "CustomBrightnessRecoveryMilliseconds=" +
+                            normalized.CustomProfile.BrightnessRecoveryMilliseconds.ToString(
+                            CultureInfo.InvariantCulture),
+                        "CustomBrightnessRecoveryFrames=" +
+                            normalized.CustomProfile.BrightnessRecoveryFrames.ToString(
+                            CultureInfo.InvariantCulture),
+                        "CustomBrightnessFadeDurationMilliseconds=" +
+                            normalized.CustomProfile.BrightnessFadeDurationMilliseconds.ToString(
+                            CultureInfo.InvariantCulture),
                         "CustomBrightnessFadeEnabled=" +
                             normalized.CustomProfile.BrightnessFadeEnabled,
                         "CustomBlackoutFadeEnabled=" +
                             normalized.CustomProfile.BlackoutFadeEnabled,
-                        "CustomBrightnessFadeSteps=" +
-                            normalized.CustomProfile.BrightnessFadeSteps.ToString(
+                        "CustomBrightnessFadeFrames=" +
+                            normalized.CustomProfile.BrightnessFadeFrames.ToString(
                             CultureInfo.InvariantCulture),
                         "CustomBrightnessFadeExponent=" +
                             normalized.CustomProfile.BrightnessFadeExponent.ToString(

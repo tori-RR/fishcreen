@@ -20,8 +20,14 @@ namespace SecondScreenDimmer
         private readonly Label idleBlackoutValueLabel;
         private readonly ModernSlider blackoutRecoveryTrackBar;
         private readonly Label blackoutRecoveryValueLabel;
-        private readonly ModernSlider brightnessStepsTrackBar;
-        private readonly Label brightnessStepsValueLabel;
+        private readonly ModernSlider brightnessRecoveryTrackBar;
+        private readonly Label brightnessRecoveryValueLabel;
+        private readonly ModernSlider brightnessRecoveryFramesTrackBar;
+        private readonly Label brightnessRecoveryFramesValueLabel;
+        private readonly ModernSlider brightnessFadeDurationTrackBar;
+        private readonly Label brightnessFadeDurationValueLabel;
+        private readonly ModernSlider brightnessFramesTrackBar;
+        private readonly Label brightnessFramesValueLabel;
         private readonly ModernSlider brightnessExponentTrackBar;
         private readonly Label brightnessExponentValueLabel;
         private readonly ToggleSwitch brightnessFadeSwitch;
@@ -130,17 +136,55 @@ namespace SecondScreenDimmer
             blackoutRecoveryTrackBar.Size = new Size(522, 34);
             blackoutRecoveryTrackBar.ValueChanged += OnProfileParameterChanged;
 
-            brightnessStepsValueLabel = CreateValueLabel(462, 366);
-            brightnessStepsTrackBar = new ModernSlider();
-            brightnessStepsTrackBar.AutoSize = false;
-            brightnessStepsTrackBar.Location = new Point(19, 389);
-            brightnessStepsTrackBar.Maximum = DimmerProfile.MaximumBrightnessFadeSteps;
-            brightnessStepsTrackBar.Minimum = DimmerProfile.MinimumBrightnessFadeSteps;
-            brightnessStepsTrackBar.SmallChange = 1;
-            brightnessStepsTrackBar.LargeChange = 5;
-            brightnessStepsTrackBar.TickFrequency = 5;
-            brightnessStepsTrackBar.Size = new Size(522, 34);
-            brightnessStepsTrackBar.ValueChanged += OnProfileParameterChanged;
+            brightnessRecoveryValueLabel = CreateValueLabel(462, 366);
+            brightnessRecoveryTrackBar = new ModernSlider();
+            brightnessRecoveryTrackBar.AutoSize = false;
+            brightnessRecoveryTrackBar.Location = new Point(19, 389);
+            brightnessRecoveryTrackBar.Maximum = 10;
+            brightnessRecoveryTrackBar.Minimum = 0;
+            brightnessRecoveryTrackBar.SmallChange = 1;
+            brightnessRecoveryTrackBar.LargeChange = 2;
+            brightnessRecoveryTrackBar.TickFrequency = 2;
+            brightnessRecoveryTrackBar.Size = new Size(522, 34);
+            brightnessRecoveryTrackBar.ValueChanged += OnProfileParameterChanged;
+
+            brightnessRecoveryFramesValueLabel = CreateValueLabel(462, 366);
+            brightnessRecoveryFramesTrackBar = new ModernSlider();
+            brightnessRecoveryFramesTrackBar.AutoSize = false;
+            brightnessRecoveryFramesTrackBar.Location = new Point(19, 389);
+            brightnessRecoveryFramesTrackBar.Maximum =
+                DimmerProfile.MaximumBrightnessRecoveryFrames;
+            brightnessRecoveryFramesTrackBar.Minimum =
+                DimmerProfile.MinimumBrightnessRecoveryFrames;
+            brightnessRecoveryFramesTrackBar.SmallChange = 1;
+            brightnessRecoveryFramesTrackBar.LargeChange = 5;
+            brightnessRecoveryFramesTrackBar.TickFrequency = 5;
+            brightnessRecoveryFramesTrackBar.Size = new Size(522, 34);
+            brightnessRecoveryFramesTrackBar.ValueChanged += OnProfileParameterChanged;
+
+            brightnessFadeDurationValueLabel = CreateValueLabel(462, 366);
+            brightnessFadeDurationTrackBar = new ModernSlider();
+            brightnessFadeDurationTrackBar.AutoSize = false;
+            brightnessFadeDurationTrackBar.Location = new Point(19, 389);
+            brightnessFadeDurationTrackBar.Maximum = 30;
+            brightnessFadeDurationTrackBar.Minimum = 0;
+            brightnessFadeDurationTrackBar.SmallChange = 1;
+            brightnessFadeDurationTrackBar.LargeChange = 5;
+            brightnessFadeDurationTrackBar.TickFrequency = 5;
+            brightnessFadeDurationTrackBar.Size = new Size(522, 34);
+            brightnessFadeDurationTrackBar.ValueChanged += OnProfileParameterChanged;
+
+            brightnessFramesValueLabel = CreateValueLabel(462, 366);
+            brightnessFramesTrackBar = new ModernSlider();
+            brightnessFramesTrackBar.AutoSize = false;
+            brightnessFramesTrackBar.Location = new Point(19, 389);
+            brightnessFramesTrackBar.Maximum = DimmerProfile.MaximumBrightnessFadeFrames;
+            brightnessFramesTrackBar.Minimum = DimmerProfile.MinimumBrightnessFadeFrames;
+            brightnessFramesTrackBar.SmallChange = 1;
+            brightnessFramesTrackBar.LargeChange = 5;
+            brightnessFramesTrackBar.TickFrequency = 5;
+            brightnessFramesTrackBar.Size = new Size(522, 34);
+            brightnessFramesTrackBar.ValueChanged += OnProfileParameterChanged;
 
             brightnessExponentValueLabel = CreateValueLabel(462, 432);
             brightnessExponentTrackBar = new ModernSlider();
@@ -243,15 +287,30 @@ namespace SecondScreenDimmer
                 "降低硬件亮度时使用前快后慢曲线",
                 brightnessFadeSwitch));
             contentPanel.Controls.Add(CreateSliderCard(
-                "亮度曲线等级",
-                "等级越高，暗场阶段的亮度变化越细腻",
-                brightnessStepsTrackBar,
-                brightnessStepsValueLabel));
+                "亮度变暗时间",
+                "0 表示立即变暗；高帧数可能受显示器 DDC 速度影响",
+                brightnessFadeDurationTrackBar,
+                brightnessFadeDurationValueLabel));
+            contentPanel.Controls.Add(CreateSliderCard(
+                "亮度变暗帧数",
+                "帧数越高，暗场阶段的亮度变化越细腻",
+                brightnessFramesTrackBar,
+                brightnessFramesValueLabel));
             contentPanel.Controls.Add(CreateSliderCard(
                 "曲线指数",
                 "数值越高，前段变暗越快、后段过渡越慢",
                 brightnessExponentTrackBar,
                 brightnessExponentValueLabel));
+            contentPanel.Controls.Add(CreateSliderCard(
+                "亮度恢复时间",
+                "鼠标进入所选副屏后，在 0–1 秒内渐变恢复硬件亮度",
+                brightnessRecoveryTrackBar,
+                brightnessRecoveryValueLabel));
+            contentPanel.Controls.Add(CreateSliderCard(
+                "亮度恢复帧数",
+                "帧数越高越细腻，但显示器 DDC 响应可能延长实际时间",
+                brightnessRecoveryFramesTrackBar,
+                brightnessRecoveryFramesValueLabel));
             contentPanel.Controls.Add(CreateSwitchCard(
                 "黑屏渐变",
                 "日常或自定义模式进入黑屏时使用 5 秒渐变",
@@ -438,9 +497,27 @@ namespace SecondScreenDimmer
                     blackoutRecoveryTrackBar.Maximum,
                     profile.BlackoutRecoveryMilliseconds / 100));
 
-            brightnessStepsTrackBar.Value = Math.Max(
-                brightnessStepsTrackBar.Minimum,
-                Math.Min(brightnessStepsTrackBar.Maximum, profile.BrightnessFadeSteps));
+            brightnessRecoveryTrackBar.Value = Math.Max(
+                brightnessRecoveryTrackBar.Minimum,
+                Math.Min(
+                    brightnessRecoveryTrackBar.Maximum,
+                    profile.BrightnessRecoveryMilliseconds / 100));
+
+            brightnessRecoveryFramesTrackBar.Value = Math.Max(
+                brightnessRecoveryFramesTrackBar.Minimum,
+                Math.Min(
+                    brightnessRecoveryFramesTrackBar.Maximum,
+                    profile.BrightnessRecoveryFrames));
+
+            brightnessFadeDurationTrackBar.Value = Math.Max(
+                brightnessFadeDurationTrackBar.Minimum,
+                Math.Min(
+                    brightnessFadeDurationTrackBar.Maximum,
+                    profile.BrightnessFadeDurationMilliseconds / 100));
+
+            brightnessFramesTrackBar.Value = Math.Max(
+                brightnessFramesTrackBar.Minimum,
+                Math.Min(brightnessFramesTrackBar.Maximum, profile.BrightnessFadeFrames));
 
             brightnessExponentTrackBar.Value = Math.Max(
                 brightnessExponentTrackBar.Minimum,
@@ -475,12 +552,27 @@ namespace SecondScreenDimmer
                 (blackoutRecoveryTrackBar.Value / 10.0).ToString(
                 "0.0",
                 CultureInfo.CurrentCulture) + " 秒";
-            brightnessStepsValueLabel.Text = brightnessStepsTrackBar.Value + " 段";
+            brightnessRecoveryValueLabel.Text =
+                (brightnessRecoveryTrackBar.Value / 10.0).ToString(
+                "0.0",
+                CultureInfo.CurrentCulture) + " 秒";
+            brightnessRecoveryFramesValueLabel.Text =
+                brightnessRecoveryFramesTrackBar.Value + " 帧";
+            brightnessFadeDurationValueLabel.Text =
+                (brightnessFadeDurationTrackBar.Value / 10.0).ToString(
+                "0.0",
+                CultureInfo.CurrentCulture) + " 秒";
+            brightnessFramesValueLabel.Text = brightnessFramesTrackBar.Value + " 帧";
             brightnessExponentValueLabel.Text = (brightnessExponentTrackBar.Value / 10.0).ToString(
                 "0.0",
                 CultureInfo.CurrentCulture);
-            brightnessStepsTrackBar.Enabled = brightnessFadeSwitch.Checked;
-            brightnessExponentTrackBar.Enabled = brightnessFadeSwitch.Checked;
+            brightnessFadeDurationTrackBar.Enabled = brightnessFadeSwitch.Checked;
+            bool brightnessFadeParametersEnabled =
+                brightnessFadeSwitch.Checked && brightnessFadeDurationTrackBar.Value > 0;
+            brightnessFramesTrackBar.Enabled = brightnessFadeParametersEnabled;
+            brightnessExponentTrackBar.Enabled = brightnessFadeParametersEnabled;
+            brightnessRecoveryFramesTrackBar.Enabled =
+                brightnessRecoveryTrackBar.Value > 0;
         }
 
         private void OnApplyClicked(object sender, EventArgs eventArgs)
@@ -526,9 +618,15 @@ namespace SecondScreenDimmer
                 settings.CustomProfile.IdleBlackoutMilliseconds = idleBlackoutTrackBar.Value * 1000;
                 settings.CustomProfile.BlackoutRecoveryMilliseconds =
                     blackoutRecoveryTrackBar.Value * 100;
+                settings.CustomProfile.BrightnessRecoveryMilliseconds =
+                    brightnessRecoveryTrackBar.Value * 100;
+                settings.CustomProfile.BrightnessRecoveryFrames =
+                    brightnessRecoveryFramesTrackBar.Value;
+                settings.CustomProfile.BrightnessFadeDurationMilliseconds =
+                    brightnessFadeDurationTrackBar.Value * 100;
                 settings.CustomProfile.BrightnessFadeEnabled = brightnessFadeSwitch.Checked;
                 settings.CustomProfile.BlackoutFadeEnabled = blackoutFadeSwitch.Checked;
-                settings.CustomProfile.BrightnessFadeSteps = brightnessStepsTrackBar.Value;
+                settings.CustomProfile.BrightnessFadeFrames = brightnessFramesTrackBar.Value;
                 settings.CustomProfile.BrightnessFadeExponent =
                     brightnessExponentTrackBar.Value / 10.0;
             }

@@ -62,7 +62,7 @@ namespace SecondScreenDimmer
             uint requestedBrightness,
             int durationMilliseconds,
             bool fadeEnabled,
-            int maximumFadeSteps,
+            int maximumFadeFrames,
             double fadeExponent,
             CancellationToken cancellationToken)
         {
@@ -122,23 +122,28 @@ namespace SecondScreenDimmer
                     }
 
                     int distance = Math.Abs((int)current - (int)brightness);
-                    int normalizedFadeSteps = Math.Max(1, Math.Min(100, maximumFadeSteps));
+                    int normalizedFadeFrames = Math.Max(1, Math.Min(100, maximumFadeFrames));
                     double normalizedFadeExponent = Math.Max(1.0, Math.Min(4.0, fadeExponent));
-                    int stepCount = fadeEnabled
-                        ? Math.Max(1, Math.Min(normalizedFadeSteps, distance))
+                    int normalizedDuration = Math.Max(
+                        DimmerProfile.MinimumBrightnessFadeDurationMilliseconds,
+                        Math.Min(
+                            DimmerProfile.MaximumBrightnessFadeDurationMilliseconds,
+                            durationMilliseconds));
+                    int frameCount = fadeEnabled
+                        ? Math.Max(1, Math.Min(normalizedFadeFrames, distance))
                         : 1;
                     Stopwatch stopwatch = Stopwatch.StartNew();
                     uint lastBrightness = current;
                     bool brightnessChanged = false;
 
-                    for (int step = 1; step <= stepCount; step++)
+                    for (int frame = 1; frame <= frameCount; frame++)
                     {
-                        double progress = (double)step / stepCount;
+                        double progress = (double)frame / frameCount;
                         double easedProgress = fadeEnabled
                             ? 1.0 - Math.Pow(1.0 - progress, normalizedFadeExponent)
                             : 1.0;
                         int targetElapsed = fadeEnabled
-                            ? (int)Math.Round(durationMilliseconds * progress)
+                            ? (int)Math.Round(normalizedDuration * progress)
                             : 0;
                         int remaining = targetElapsed - (int)stopwatch.ElapsedMilliseconds;
 
@@ -156,15 +161,15 @@ namespace SecondScreenDimmer
                         uint nextBrightness = (uint)Math.Round(
                             current + (delta * easedProgress));
 
-                        int remainingSteps = stepCount - step;
+                        int remainingFrames = frameCount - frame;
                         if (brightness < current)
                         {
-                            uint lowestAllowed = brightness + (uint)remainingSteps;
+                            uint lowestAllowed = brightness + (uint)remainingFrames;
                             nextBrightness = Math.Max(nextBrightness, lowestAllowed);
                         }
                         else
                         {
-                            uint highestAllowed = brightness - (uint)remainingSteps;
+                            uint highestAllowed = brightness - (uint)remainingFrames;
                             nextBrightness = Math.Min(nextBrightness, highestAllowed);
                         }
 
@@ -228,6 +233,147 @@ namespace SecondScreenDimmer
             }
         }
 
+        internal OperationResult RestoreGradually(
+            int durationMilliseconds,
+            int maximumFadeFrames,
+            CancellationToken cancellationToken)
+        {
+            lock (syncRoot)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return OperationResult.Ok("亮度恢复渐变已取消");
+                }
+
+                if (!hasOriginalBrightness)
+                {
+                    uint savedBrightness;
+                    if (!RecoveryStore.TryLoad(targetStableId, out savedBrightness))
+                    {
+                        return OperationResult.Ok("亮度已经恢复");
+                    }
+
+                    originalBrightness = savedBrightness;
+                    hasOriginalBrightness = true;
+                }
+
+                MonitorDescriptor target = monitorService.FindByStableId(targetStableId);
+                if (target == null)
+                {
+                    return OperationResult.Fail("恢复失败：未找到目标显示器");
+                }
+
+                NativeMethods.PhysicalMonitor[] physicalMonitors;
+                string openError;
+                if (!TryOpenPhysicalMonitors(target.Handle, out physicalMonitors, out openError))
+                {
+                    return OperationResult.Fail("恢复失败：" + openError);
+                }
+
+                try
+                {
+                    if (physicalMonitors.Length == 0)
+                    {
+                        return OperationResult.Fail("恢复失败：没有物理显示器句柄");
+                    }
+
+                    uint minimum;
+                    uint current;
+                    uint maximum;
+                    if (!NativeMethods.GetMonitorBrightness(
+                        physicalMonitors[0].Handle,
+                        out minimum,
+                        out current,
+                        out maximum))
+                    {
+                        return OperationResult.Fail(
+                            "读取目标屏幕亮度失败：" + Marshal.GetLastWin32Error());
+                    }
+
+                    uint brightness = Math.Max(
+                        minimum,
+                        Math.Min(originalBrightness, maximum));
+                    if (brightness == current)
+                    {
+                        return FinishRestore(brightness, false, 0);
+                    }
+
+                    int distance = Math.Abs((int)current - (int)brightness);
+                    int normalizedFadeFrames = Math.Max(
+                        DimmerProfile.MinimumBrightnessRecoveryFrames,
+                        Math.Min(
+                            DimmerProfile.MaximumBrightnessRecoveryFrames,
+                            maximumFadeFrames));
+                    int frameCount = Math.Max(1, Math.Min(normalizedFadeFrames, distance));
+                    int normalizedDuration = Math.Max(
+                        DimmerProfile.MinimumBrightnessRecoveryMilliseconds,
+                        Math.Min(
+                            DimmerProfile.MaximumBrightnessRecoveryMilliseconds,
+                            durationMilliseconds));
+                    Stopwatch stopwatch = Stopwatch.StartNew();
+                    uint lastBrightness = current;
+
+                    for (int frame = 1; frame <= frameCount; frame++)
+                    {
+                        double progress = (double)frame / frameCount;
+                        int targetElapsed = (int)Math.Round(normalizedDuration * progress);
+                        int remaining = targetElapsed - (int)stopwatch.ElapsedMilliseconds;
+
+                        if (remaining > 0 && cancellationToken.WaitHandle.WaitOne(remaining))
+                        {
+                            return OperationResult.Ok("亮度恢复渐变已取消");
+                        }
+
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return OperationResult.Ok("亮度恢复渐变已取消");
+                        }
+
+                        long delta = (long)brightness - current;
+                        uint nextBrightness = (uint)Math.Round(current + (delta * progress));
+
+                        int remainingFrames = frameCount - frame;
+                        if (brightness < current)
+                        {
+                            uint lowestAllowed = brightness + (uint)remainingFrames;
+                            nextBrightness = Math.Max(nextBrightness, lowestAllowed);
+                        }
+                        else
+                        {
+                            uint highestAllowed = brightness - (uint)remainingFrames;
+                            nextBrightness = Math.Min(nextBrightness, highestAllowed);
+                        }
+
+                        if (nextBrightness == lastBrightness)
+                        {
+                            continue;
+                        }
+
+                        if (!NativeMethods.SetMonitorBrightness(
+                            physicalMonitors[0].Handle,
+                            nextBrightness))
+                        {
+                            return OperationResult.Fail(
+                                "恢复目标屏幕亮度失败：" + Marshal.GetLastWin32Error());
+                        }
+
+                        lastBrightness = nextBrightness;
+                    }
+
+                    return FinishRestore(
+                        brightness,
+                        true,
+                        stopwatch.ElapsedMilliseconds);
+                }
+                finally
+                {
+                    NativeMethods.DestroyPhysicalMonitors(
+                        (uint)physicalMonitors.Length,
+                        physicalMonitors);
+                }
+            }
+        }
+
         private OperationResult RestoreCore()
         {
             MonitorDescriptor target = monitorService.FindByStableId(targetStableId);
@@ -259,10 +405,7 @@ namespace SecondScreenDimmer
                 }
 
                 uint restored = originalBrightness;
-                hasOriginalBrightness = false;
-                RecoveryStore.Clear();
-                AppLog.Write("Dell brightness restored to " + restored + ".");
-                return OperationResult.Ok("目标屏幕亮度已恢复到 " + restored);
+                return FinishRestore(restored, false, 0);
             }
             finally
             {
@@ -270,6 +413,26 @@ namespace SecondScreenDimmer
                     (uint)physicalMonitors.Length,
                     physicalMonitors);
             }
+        }
+
+        private OperationResult FinishRestore(
+            uint restored,
+            bool gradual,
+            long elapsedMilliseconds)
+        {
+            hasOriginalBrightness = false;
+            RecoveryStore.Clear();
+
+            if (gradual)
+            {
+                AppLog.Write(
+                    "Dell brightness gradually restored to " + restored +
+                    " in " + elapsedMilliseconds + " ms.");
+                return OperationResult.Ok("目标屏幕亮度已渐变恢复到 " + restored);
+            }
+
+            AppLog.Write("Dell brightness restored to " + restored + ".");
+            return OperationResult.Ok("目标屏幕亮度已恢复到 " + restored);
         }
 
         private static bool TryOpenPhysicalMonitors(
