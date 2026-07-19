@@ -29,9 +29,6 @@ namespace SecondScreenDimmer
 
     internal sealed class BrightnessService
     {
-        private const int MaximumFadeSteps = 30;
-        private const double FadeCurveExponent = 2.4;
-
         private readonly object syncRoot = new object();
         private readonly MonitorService monitorService;
         private readonly string targetStableId;
@@ -64,6 +61,9 @@ namespace SecondScreenDimmer
         internal OperationResult FadeTo(
             uint requestedBrightness,
             int durationMilliseconds,
+            bool fadeEnabled,
+            int maximumFadeSteps,
+            double fadeExponent,
             CancellationToken cancellationToken)
         {
             lock (syncRoot)
@@ -76,7 +76,7 @@ namespace SecondScreenDimmer
                 MonitorDescriptor target = monitorService.FindByStableId(targetStableId);
                 if (target == null)
                 {
-                    return OperationResult.Fail("未找到 Dell 显示器");
+                    return OperationResult.Fail("未找到目标显示器");
                 }
 
                 NativeMethods.PhysicalMonitor[] physicalMonitors;
@@ -103,7 +103,7 @@ namespace SecondScreenDimmer
                         out maximum))
                     {
                         return OperationResult.Fail(
-                            "读取 Dell 亮度失败：" + Marshal.GetLastWin32Error());
+                            "读取目标屏幕亮度失败：" + Marshal.GetLastWin32Error());
                     }
 
                     bool capturedNow = false;
@@ -118,11 +118,15 @@ namespace SecondScreenDimmer
                     uint brightness = Math.Max(minimum, Math.Min(requestedBrightness, maximum));
                     if (brightness == current)
                     {
-                        return OperationResult.Ok("Dell 亮度已经是 " + brightness);
+                        return OperationResult.Ok("目标屏幕亮度已经是 " + brightness);
                     }
 
                     int distance = Math.Abs((int)current - (int)brightness);
-                    int stepCount = Math.Max(1, Math.Min(MaximumFadeSteps, distance));
+                    int normalizedFadeSteps = Math.Max(1, Math.Min(100, maximumFadeSteps));
+                    double normalizedFadeExponent = Math.Max(1.0, Math.Min(4.0, fadeExponent));
+                    int stepCount = fadeEnabled
+                        ? Math.Max(1, Math.Min(normalizedFadeSteps, distance))
+                        : 1;
                     Stopwatch stopwatch = Stopwatch.StartNew();
                     uint lastBrightness = current;
                     bool brightnessChanged = false;
@@ -130,10 +134,12 @@ namespace SecondScreenDimmer
                     for (int step = 1; step <= stepCount; step++)
                     {
                         double progress = (double)step / stepCount;
-                        double easedProgress = 1.0 - Math.Pow(
-                            1.0 - progress,
-                            FadeCurveExponent);
-                        int targetElapsed = (int)Math.Round(durationMilliseconds * progress);
+                        double easedProgress = fadeEnabled
+                            ? 1.0 - Math.Pow(1.0 - progress, normalizedFadeExponent)
+                            : 1.0;
+                        int targetElapsed = fadeEnabled
+                            ? (int)Math.Round(durationMilliseconds * progress)
+                            : 0;
                         int remaining = targetElapsed - (int)stopwatch.ElapsedMilliseconds;
 
                         if (remaining > 0 && cancellationToken.WaitHandle.WaitOne(remaining))
@@ -178,7 +184,7 @@ namespace SecondScreenDimmer
                                 RecoveryStore.Clear();
                             }
 
-                            return OperationResult.Fail("设置 Dell 亮度失败：" + error);
+                            return OperationResult.Fail("设置目标屏幕亮度失败：" + error);
                         }
 
                         brightnessChanged = true;
@@ -188,7 +194,10 @@ namespace SecondScreenDimmer
                     AppLog.Write(
                         "Dell brightness faded from " + current + " to " + brightness +
                         " in " + stopwatch.ElapsedMilliseconds + " ms.");
-                    return OperationResult.Ok("Dell 亮度已渐变至 " + brightness);
+                    return OperationResult.Ok(
+                        fadeEnabled
+                            ? "目标屏幕亮度已渐变至 " + brightness
+                            : "目标屏幕亮度已降至 " + brightness);
                 }
                 finally
                 {
@@ -224,7 +233,7 @@ namespace SecondScreenDimmer
             MonitorDescriptor target = monitorService.FindByStableId(targetStableId);
             if (target == null)
             {
-                return OperationResult.Fail("恢复失败：未找到 Dell 显示器");
+                return OperationResult.Fail("恢复失败：未找到目标显示器");
             }
 
             NativeMethods.PhysicalMonitor[] physicalMonitors;
@@ -246,14 +255,14 @@ namespace SecondScreenDimmer
                     originalBrightness))
                 {
                     return OperationResult.Fail(
-                        "恢复 Dell 亮度失败：" + Marshal.GetLastWin32Error());
+                        "恢复目标屏幕亮度失败：" + Marshal.GetLastWin32Error());
                 }
 
                 uint restored = originalBrightness;
                 hasOriginalBrightness = false;
                 RecoveryStore.Clear();
                 AppLog.Write("Dell brightness restored to " + restored + ".");
-                return OperationResult.Ok("Dell 亮度已恢复到 " + restored);
+                return OperationResult.Ok("目标屏幕亮度已恢复到 " + restored);
             }
             finally
             {

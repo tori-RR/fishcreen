@@ -12,10 +12,11 @@ namespace SecondScreenDimmer
         private readonly Icon appIcon;
         private readonly ToolStripMenuItem dailyModeItem;
         private readonly ToolStripMenuItem movieModeItem;
+        private readonly ToolStripMenuItem customModeItem;
         private readonly ToolStripMenuItem offModeItem;
         private readonly ToolStripMenuItem startupItem;
         private readonly ToolStripMenuItem statusItem;
-        private DimmerMode lastActiveMode;
+        private SettingsForm settingsForm;
         private bool changingStartupItem;
         private bool exiting;
 
@@ -31,13 +32,20 @@ namespace SecondScreenDimmer
             movieModeItem = new ToolStripMenuItem("观影模式");
             movieModeItem.Click += delegate { controller.SetMode(DimmerMode.Movie); };
 
+            customModeItem = new ToolStripMenuItem("自定义");
+            customModeItem.Click += delegate { controller.SetMode(DimmerMode.Custom); };
+
             offModeItem = new ToolStripMenuItem("关闭自动暗屏");
             offModeItem.Click += delegate { controller.SetMode(DimmerMode.Off); };
 
             ToolStripMenuItem modeMenu = new ToolStripMenuItem("运行模式");
             modeMenu.DropDownItems.Add(dailyModeItem);
             modeMenu.DropDownItems.Add(movieModeItem);
+            modeMenu.DropDownItems.Add(customModeItem);
             modeMenu.DropDownItems.Add(offModeItem);
+
+            ToolStripMenuItem settingsItem = new ToolStripMenuItem("设置…");
+            settingsItem.Click += delegate { ShowSettingsForm(); };
 
             startupItem = new ToolStripMenuItem("开机自动启动");
             startupItem.CheckOnClick = true;
@@ -54,6 +62,8 @@ namespace SecondScreenDimmer
             exitItem.Click += delegate { ExitApplication(); };
 
             ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Items.Add(settingsItem);
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(modeMenu);
             menu.Items.Add(startupItem);
             menu.Items.Add(statusItem);
@@ -61,6 +71,15 @@ namespace SecondScreenDimmer
             menu.Items.Add(restoreItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
+            menu.Opening += delegate
+            {
+                ThemeManager.ApplyContextMenuTheme(
+                    menu,
+                    controller.GetSettingsSnapshot().ThemeMode);
+            };
+            ThemeManager.ApplyContextMenuTheme(
+                menu,
+                controller.GetSettingsSnapshot().ThemeMode);
 
             trayIcon = new NotifyIcon();
             appIcon = LoadApplicationIcon();
@@ -68,16 +87,11 @@ namespace SecondScreenDimmer
             trayIcon.Text = "fishcreen";
             trayIcon.ContextMenuStrip = menu;
             trayIcon.Visible = true;
-            trayIcon.DoubleClick += delegate
+            trayIcon.MouseClick += delegate(object sender, MouseEventArgs eventArgs)
             {
-                if (controller.Mode == DimmerMode.Off)
+                if (eventArgs.Button == MouseButtons.Left)
                 {
-                    controller.SetMode(lastActiveMode == DimmerMode.Off ? DimmerMode.Daily : lastActiveMode);
-                }
-                else
-                {
-                    lastActiveMode = controller.Mode;
-                    controller.SetMode(DimmerMode.Off);
+                    ShowSettingsForm();
                 }
             };
 
@@ -85,9 +99,6 @@ namespace SecondScreenDimmer
             SystemEvents.PowerModeChanged += OnPowerModeChanged;
             SystemEvents.SessionEnding += OnSessionEnding;
 
-            lastActiveMode = controller.Mode == DimmerMode.Off
-                ? DimmerMode.Daily
-                : controller.Mode;
             controller.Start();
         }
 
@@ -107,11 +118,34 @@ namespace SecondScreenDimmer
         {
             dailyModeItem.Checked = mode == DimmerMode.Daily;
             movieModeItem.Checked = mode == DimmerMode.Movie;
+            customModeItem.Checked = mode == DimmerMode.Custom;
             offModeItem.Checked = mode == DimmerMode.Off;
 
-            if (mode != DimmerMode.Off)
+            if (settingsForm != null && !settingsForm.IsDisposed)
             {
-                lastActiveMode = mode;
+                settingsForm.SyncMode(mode);
+            }
+        }
+
+        internal void ShowSettingsForm()
+        {
+            if (settingsForm == null || settingsForm.IsDisposed)
+            {
+                settingsForm = new SettingsForm(controller, appIcon);
+                settingsForm.FormClosed += delegate { settingsForm = null; };
+                settingsForm.Show();
+            }
+            else
+            {
+                settingsForm.RefreshFromController();
+                if (settingsForm.WindowState == FormWindowState.Minimized)
+                {
+                    settingsForm.WindowState = FormWindowState.Normal;
+                }
+
+                settingsForm.Show();
+                settingsForm.Activate();
+                settingsForm.BringToFront();
             }
         }
 
@@ -142,6 +176,20 @@ namespace SecondScreenDimmer
         private void OnDisplaySettingsChanged(object sender, EventArgs eventArgs)
         {
             controller.RequestRefreshTarget();
+
+            if (settingsForm != null &&
+                !settingsForm.IsDisposed &&
+                settingsForm.IsHandleCreated)
+            {
+                try
+                {
+                    settingsForm.BeginInvoke(new Action(settingsForm.RefreshFromController));
+                }
+                catch
+                {
+                    // The settings form may be closing while displays are changing.
+                }
+            }
         }
 
         private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs eventArgs)
@@ -180,6 +228,15 @@ namespace SecondScreenDimmer
 
             controller.StatusChanged -= OnStatusChanged;
             controller.ModeChanged -= OnModeChanged;
+
+            if (settingsForm != null && !settingsForm.IsDisposed)
+            {
+                SettingsForm form = settingsForm;
+                settingsForm = null;
+                form.Close();
+                form.Dispose();
+            }
+
             controller.Dispose();
 
             trayIcon.Visible = false;

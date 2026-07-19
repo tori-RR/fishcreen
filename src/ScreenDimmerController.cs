@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,16 +9,13 @@ namespace SecondScreenDimmer
 {
     internal sealed class ScreenDimmerController : IDisposable
     {
-        internal const string TargetStableId = "DELA0E7";
         private const uint DimBrightnessValue = 0;
-        private const int LeaveDelayMilliseconds = 1500;
         private const int BrightnessFadeDurationMilliseconds = 300;
-        private const int DailyFadeStartMilliseconds = 30000;
         private const int DailyFadeDurationMilliseconds = 5000;
         private const int MonitorRefreshMilliseconds = 3000;
 
         private readonly MonitorService monitorService;
-        private readonly BrightnessService brightnessService;
+        private BrightnessService brightnessService;
         private readonly OverlayForm overlay;
         private readonly System.Windows.Forms.Timer cursorTimer;
         private readonly object queueSync = new object();
@@ -36,6 +34,8 @@ namespace SecondScreenDimmer
         private double overlayOpacity;
         private bool disposed;
         private DimmerMode mode;
+        private AppSettings settings;
+        private DimmerProfile activeProfile;
 
         internal event Action<string> StatusChanged;
         internal event Action<DimmerMode> ModeChanged;
@@ -45,10 +45,23 @@ namespace SecondScreenDimmer
             get { return mode; }
         }
 
+        internal AppSettings GetSettingsSnapshot()
+        {
+            return settings.Clone();
+        }
+
+        internal List<MonitorDescriptor> GetAvailableMonitors()
+        {
+            return monitorService.EnumerateActiveMonitors();
+        }
+
         internal ScreenDimmerController()
         {
             monitorService = new MonitorService();
-            brightnessService = new BrightnessService(monitorService, TargetStableId);
+            settings = SettingsStore.Load();
+            SelectFallbackTargetIfNeeded();
+            brightnessService = new BrightnessService(monitorService, settings.TargetStableId);
+            activeProfile = settings.GetEffectiveProfile();
             overlay = new OverlayForm();
 
             // Create the native handle on the UI thread without showing the form.
@@ -59,7 +72,7 @@ namespace SecondScreenDimmer
             cursorTimer.Interval = 75;
             cursorTimer.Tick += OnCursorTimerTick;
 
-            mode = SettingsStore.LoadMode();
+            mode = settings.Mode;
             lastMouseMovementAt = DateTime.UtcNow;
             RefreshTarget();
         }
@@ -82,7 +95,9 @@ namespace SecondScreenDimmer
             }
 
             mode = newMode;
-            SettingsStore.SaveMode(mode);
+            settings.Mode = mode;
+            activeProfile = settings.GetEffectiveProfile();
+            SettingsStore.Save(settings);
             ResetActivityTimers();
             HideOverlay();
             RestoreBrightness(false);
@@ -96,16 +111,71 @@ namespace SecondScreenDimmer
             PublishStatus(GetModeStatus());
         }
 
+        internal void ApplySettings(AppSettings newSettings)
+        {
+            if (disposed || newSettings == null)
+            {
+                return;
+            }
+
+            AppSettings normalized = newSettings.Clone();
+            normalized.Normalize();
+
+            bool targetChanged = !string.Equals(
+                settings.TargetStableId,
+                normalized.TargetStableId,
+                StringComparison.OrdinalIgnoreCase);
+            bool modeChanged = mode != normalized.Mode;
+
+            CancelBrightnessFade();
+            HideOverlay();
+            ResetActivityTimers();
+
+            BrightnessService previousService = brightnessService;
+            bool shouldRestorePrevious = brightnessDimmed || targetChanged;
+            brightnessDimmed = false;
+
+            if (shouldRestorePrevious)
+            {
+                EnqueueBrightness(delegate
+                {
+                    return previousService.Restore();
+                });
+            }
+
+            settings = normalized;
+            mode = settings.Mode;
+            activeProfile = settings.GetEffectiveProfile();
+
+            if (targetChanged)
+            {
+                brightnessService = new BrightnessService(
+                    monitorService,
+                    settings.TargetStableId);
+                target = null;
+            }
+
+            SettingsStore.Save(settings);
+            RefreshTarget();
+
+            if (modeChanged)
+            {
+                PublishModeChanged();
+            }
+
+            PublishStatus(GetModeStatus());
+        }
+
         internal void RefreshTarget()
         {
-            target = monitorService.FindByStableId(TargetStableId);
+            target = monitorService.FindByStableId(settings.TargetStableId);
             nextMonitorRefresh = DateTime.UtcNow.AddMilliseconds(MonitorRefreshMilliseconds);
 
             if (target == null)
             {
                 HideOverlay();
                 RestoreBrightness(false);
-                PublishStatus("未找到 Dell S2417DG");
+                PublishStatus("未找到已选择的屏幕");
             }
             else if (overlayVisible)
             {
@@ -197,7 +267,7 @@ namespace SecondScreenDimmer
                 hasPreviousCursor = true;
                 lastMouseMovementAt = now;
 
-                if (mode == DimmerMode.Daily)
+                if (mode != DimmerMode.Movie)
                 {
                     HideOverlay();
                 }
@@ -231,7 +301,8 @@ namespace SecondScreenDimmer
                 return;
             }
 
-            if ((now - outsideSince.Value).TotalMilliseconds >= LeaveDelayMilliseconds)
+            if ((now - outsideSince.Value).TotalMilliseconds >=
+                activeProfile.LeaveDelayMilliseconds)
             {
                 DimBrightness();
                 ShowMovieOverlay();
@@ -244,7 +315,8 @@ namespace SecondScreenDimmer
             {
                 outsideSince = null;
 
-                if ((now - lastMouseMovementAt).TotalMilliseconds < DailyFadeStartMilliseconds)
+                if ((now - lastMouseMovementAt).TotalMilliseconds <
+                    activeProfile.IdleBlackoutMilliseconds)
                 {
                     RestoreBrightness(false);
                 }
@@ -255,18 +327,21 @@ namespace SecondScreenDimmer
                 {
                     outsideSince = now;
                 }
-                else if ((now - outsideSince.Value).TotalMilliseconds >= LeaveDelayMilliseconds)
+                else if ((now - outsideSince.Value).TotalMilliseconds >=
+                    activeProfile.LeaveDelayMilliseconds)
                 {
                     DimBrightness();
                 }
             }
 
             double idleMilliseconds = (now - lastMouseMovementAt).TotalMilliseconds;
-            if (idleMilliseconds >= DailyFadeStartMilliseconds)
+            if (idleMilliseconds >= activeProfile.IdleBlackoutMilliseconds)
             {
                 DimBrightness();
-                double progress = (idleMilliseconds - DailyFadeStartMilliseconds) /
-                    DailyFadeDurationMilliseconds;
+                double progress = activeProfile.BlackoutFadeEnabled
+                    ? (idleMilliseconds - activeProfile.IdleBlackoutMilliseconds) /
+                        DailyFadeDurationMilliseconds
+                    : 1.0;
                 UpdateDailyFade(progress);
             }
         }
@@ -280,15 +355,22 @@ namespace SecondScreenDimmer
 
             brightnessDimmed = true;
             CancellationTokenSource fadeCancellation = BeginBrightnessFade();
-            PublishStatus("Dell 亮度正在渐暗…");
+            BrightnessService service = brightnessService;
+            bool fadeEnabled = activeProfile.BrightnessFadeEnabled;
+            int fadeSteps = activeProfile.BrightnessFadeSteps;
+            double fadeExponent = activeProfile.BrightnessFadeExponent;
+            PublishStatus(fadeEnabled ? "目标屏幕亮度正在渐暗…" : "正在降低目标屏幕亮度…");
 
             EnqueueBrightness(delegate
             {
                 try
                 {
-                    return brightnessService.FadeTo(
+                    return service.FadeTo(
                         DimBrightnessValue,
                         BrightnessFadeDurationMilliseconds,
+                        fadeEnabled,
+                        fadeSteps,
+                        fadeExponent,
                         fadeCancellation.Token);
                 }
                 finally
@@ -310,9 +392,10 @@ namespace SecondScreenDimmer
             }
 
             PublishStatus("正在恢复副屏亮度…");
+            BrightnessService service = brightnessService;
             EnqueueBrightness(delegate
             {
-                return brightnessService.Restore();
+                return service.Restore();
             });
         }
 
@@ -331,7 +414,7 @@ namespace SecondScreenDimmer
 
             if (newlyVisible)
             {
-                AppLog.Write("Movie mode overlay shown after leaving Dell.");
+                AppLog.Write("Movie mode overlay shown after leaving the target screen.");
                 PublishStatus("观影模式：副屏已黑屏");
             }
         }
@@ -352,8 +435,11 @@ namespace SecondScreenDimmer
             {
                 dailyFadeCompleted = false;
                 overlay.Cover(target.Bounds, overlayOpacity);
-                AppLog.Write("Daily mode overlay fade started at 30 seconds idle.");
-                PublishStatus("日常模式：副屏正在渐暗");
+                AppLog.Write(
+                    "Overlay fade started after " +
+                    activeProfile.IdleBlackoutMilliseconds +
+                    " ms idle.");
+                PublishStatus(GetActiveModeName() + "：副屏正在渐暗");
             }
             else
             {
@@ -363,8 +449,8 @@ namespace SecondScreenDimmer
             if (clampedProgress >= 1.0 && !dailyFadeCompleted)
             {
                 dailyFadeCompleted = true;
-                AppLog.Write("Daily mode overlay fade completed at 35 seconds idle.");
-                PublishStatus("日常模式：副屏已黑屏");
+                AppLog.Write("Overlay fade completed.");
+                PublishStatus(GetActiveModeName() + "：副屏已黑屏");
             }
         }
 
@@ -393,7 +479,7 @@ namespace SecondScreenDimmer
         {
             if (target == null)
             {
-                return "未找到 Dell S2417DG";
+                return "未找到已选择的屏幕";
             }
 
             switch (mode)
@@ -402,8 +488,46 @@ namespace SecondScreenDimmer
                     return "日常模式已启用";
                 case DimmerMode.Movie:
                     return "观影模式已启用";
+                case DimmerMode.Custom:
+                    return "自定义模式已启用";
                 default:
                     return "自动暗屏已关闭";
+            }
+        }
+
+        private string GetActiveModeName()
+        {
+            return mode == DimmerMode.Custom ? "自定义模式" : "日常模式";
+        }
+
+        private void SelectFallbackTargetIfNeeded()
+        {
+            if (monitorService.FindByStableId(settings.TargetStableId) != null)
+            {
+                return;
+            }
+
+            List<MonitorDescriptor> monitors = monitorService.EnumerateActiveMonitors();
+            MonitorDescriptor fallback = null;
+
+            foreach (MonitorDescriptor monitor in monitors)
+            {
+                if (!monitor.IsPrimary)
+                {
+                    fallback = monitor;
+                    break;
+                }
+            }
+
+            if (fallback == null && monitors.Count > 0)
+            {
+                fallback = monitors[0];
+            }
+
+            if (fallback != null)
+            {
+                settings.TargetStableId = fallback.StableId;
+                SettingsStore.Save(settings);
             }
         }
 

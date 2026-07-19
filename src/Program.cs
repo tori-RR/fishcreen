@@ -35,6 +35,19 @@ namespace SecondScreenDimmer
                 AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
                 applicationContext = new TrayAppContext();
+                if (Array.Exists(
+                    Environment.GetCommandLineArgs(),
+                    delegate(string argument)
+                    {
+                        return string.Equals(
+                            argument,
+                            "--settings",
+                            StringComparison.OrdinalIgnoreCase);
+                    }))
+                {
+                    applicationContext.ShowSettingsForm();
+                }
+
                 Application.Run(applicationContext);
                 GC.KeepAlive(instanceMutex);
             }

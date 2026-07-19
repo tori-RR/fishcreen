@@ -4,6 +4,7 @@ namespace SecondScreenDimmer
     {
         Off,
         Daily,
-        Movie
+        Movie,
+        Custom
     }
 }
