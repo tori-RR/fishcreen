@@ -213,7 +213,7 @@ async function init() {
     const initial: AppState = preview ? {
       settings: { targetStableId: 'DELA0E7', mode: 'Daily', themeMode: 'Dark', customProfile: structuredClone(daily) },
       monitors: [{ stableId: 'DELA0E7', name: 'Dell S2417DG', gdiName: '\\\\.\\DISPLAY1', bounds: { left: -1440, top: 0, right: 0, bottom: 2560 }, primary: false }],
-      status: '日常模式 · 等待鼠标活动', brightnessDimmed: false, overlayOpacity: 0, startupEnabled: false, version: '1.1.1', shell: 'Tauri',
+      status: '日常模式 · 等待鼠标活动', brightnessDimmed: false, overlayOpacity: 0, startupEnabled: false, version: '1.2.0', shell: 'Tauri',
     } : await invoke<AppState>('get_state');
     renderState(initial, true);
     if (!preview) setInterval(async () => {
