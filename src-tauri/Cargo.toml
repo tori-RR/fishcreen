@@ -1,0 +1,26 @@
+[package]
+name = "fishcreen"
+version = "1.1.1"
+edition = "2021"
+description = "A quiet companion for your second screen"
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.5", features = ["tray-icon", "image-ico"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Devices_Display",
+  "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader",
+  "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_System_Registry", "Win32_Security"
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"

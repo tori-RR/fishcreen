@@ -1,0 +1,117 @@
+@layer reset, theme, layout, controls;
+
+@layer reset {
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  button, input, select { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled, input:disabled { cursor: default; }
+  svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  h1, h2, p { margin: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  ::selection { background: var(--accent); color: var(--on-accent); }
+}
+@layer theme {
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f7; --panel: #fff; --text: #20252e; --muted: #626c7b;
+    --line: #e8ebef; --input: #f2f4f7; --hover: #e9edf3;
+    --accent: #366bb7; --on-accent: #fff; --accent-soft: #e7eef9;
+    --track: #d9dfe7; --thumb: #fff; --success: #347851; --danger: #a72e35;
+    font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+    font-synthesis: none; color: var(--text); background: var(--bg);
+    font-size: 14px; line-height: 1.5;
+  }
+  :root[data-theme=dark] {
+    color-scheme: dark;
+    --bg: #111419; --panel: #1b2028; --text: #e5e9f0; --muted: #a4aebd;
+    --line: #2a313d; --input: #252c37; --hover: #303a48;
+    --accent: #8db6ed; --on-accent: #152438; --accent-soft: #233a56;
+    --track: #3a4555; --thumb: #eff4fc; --success: #92c8a6; --danger: #ffb3b7;
+  }
+}
+@layer layout {
+  html, body, #app { height: 100%; min-width: 360px; overflow: hidden; }
+  #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .app-header { display: flex; align-items: center; justify-content: space-between; padding: 27px 36px 22px; gap: 20px; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .app-icon { width: 44px; height: 44px; object-fit: contain; flex-shrink: 0; }
+  h1 { font-size: 27px; font-weight: 650; letter-spacing: -.025em; display: flex; align-items: baseline; gap: 14px; }
+  .version { font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+  .app-header p { color: var(--muted); margin-top: 3px; font-size: 13px; }
+  /* Contain absolute screen-reader labels inside the only scrolling region. */
+  main { position: relative; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 0 36px 12px; scrollbar-gutter: stable; }
+  .setting-section { margin: 0 0 27px; }
+  h2 { font-size: 13px; font-weight: 650; letter-spacing: .015em; display: flex; gap: 9px; align-items: center; margin: 0 2px 11px; color: var(--muted); }
+  h2 svg { width: 17px; height: 17px; }
+  .section-panel { background: var(--panel); border-radius: 14px; overflow: hidden; }
+  .setting-row { min-height: 79px; display: flex; gap: 24px; align-items: center; justify-content: space-between; margin: 0 21px; padding: 17px 0; }
+  .setting-row + .setting-row { border-top: 1px solid var(--line); }
+  .setting-copy { flex: 1 1 260px; min-width: 0; }
+  .setting-copy > label { font-size: 14px; font-weight: 500; cursor: pointer; }
+  .setting-copy p { color: var(--muted); font-size: 11.5px; line-height: 1.6; margin-top: 3px; text-wrap: pretty; }
+  .section-note { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 9px 4px 0; }
+  .slider-control { flex: 0 0 245px; display: flex; align-items: center; gap: 18px; }
+  .status-strip { display: flex; align-items: center; gap: 8px; margin: -12px 3px 25px; color: var(--muted); font-size: 11px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .action-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 36px 20px; border-top: 1px solid var(--line); background: var(--bg); }
+  .action-bar > div { display: flex; gap: 9px; }
+  #save-status { color: var(--muted); font-size: 11px; }
+  .page-footnote { color: var(--muted); text-align: center; font-size: 11px; padding: 0 0 18px; }
+  .error-banner { position: fixed; left: 28px; right: 28px; bottom: 87px; padding: 13px 17px; border-radius: 10px; background: var(--panel); color: var(--danger); box-shadow: 0 6px 28px #0002; overflow-wrap: anywhere; }
+  .preview-note { margin: 0 0 17px; padding: 10px 15px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  @media (max-width: 650px) {
+    .app-header { padding: 23px 22px 20px; }
+    main { padding-inline: 20px; }
+    .action-bar { padding-inline: 22px; }
+    .setting-row { gap: 16px; margin-inline: 17px; }
+    .slider-control { flex-basis: 207px; gap: 11px; }
+    .version { display: none; }
+    .setting-copy { flex-basis: 185px; }
+  }
+  @media (max-width: 490px) {
+    .slider-row { align-items: stretch; flex-direction: column; gap: 10px; }
+    .slider-row .setting-copy { flex: 0 0 auto; }
+    .slider-control { flex: 0 0 auto; }
+    .setting-row:not(.slider-row) { gap: 12px; }
+    .setting-copy { flex-basis: 140px; }
+    .action-bar { padding-inline: 18px; }
+    .action-bar button { min-width: 62px; padding-inline: 10px; }
+    .text-button { font-size: 12px; }
+    .brand { gap: 7px; }
+    .app-icon { width: 34px; height: 34px; }
+    h1 { font-size: 24px; }
+  }
+}
+@layer controls {
+  button { border: 0; border-radius: 8px; min-height: 35px; padding: 7px 17px; font-size: 12px; font-weight: 600; transition: background-color 120ms ease-out, color 120ms ease-out; }
+  button:disabled { opacity: .45; }
+  .primary { background: var(--accent); color: var(--on-accent); min-width: 78px; }
+  .primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .secondary { background: var(--input); color: var(--text); min-width: 72px; }
+  .secondary:hover:not(:disabled) { background: var(--hover); }
+  .text-button { display: flex; align-items: center; justify-content: center; gap: 7px; background: transparent; color: var(--accent); padding-inline: 10px; }
+  .text-button:hover:not(:disabled) { background: var(--accent-soft); }
+  .text-button svg { width: 16px; height: 16px; }
+  select { appearance: auto; max-width: 250px; width: 217px; min-width: 120px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: var(--input); color: var(--text); font-size: 12px; cursor: pointer; text-overflow: ellipsis; }
+  input[type=range] { appearance: none; height: 4px; border-radius: 3px; width: 100%; min-width: 60px; margin: 15px 0; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--track) var(--fill, 0%)); cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { appearance: none; width: 15px; height: 15px; border: 0; border-radius: 50%; background: var(--thumb); box-shadow: 0 1px 5px #0004; }
+  input[type=range]:focus-visible { outline-offset: 8px; }
+  .number-field { display: flex; align-items: center; gap: 3px; min-width: 65px; border-radius: 7px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  input[type=number] { width: 48px; border: 1px solid transparent; color: var(--text); border-radius: 6px; padding: 6px 3px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; background: transparent; appearance: textfield; caret-color: var(--accent); }
+  input[type=number]:hover:not(:disabled), input[type=number]:focus { background: var(--input); }
+  input[type=number]::-webkit-inner-spin-button { appearance: none; }
+  .is-disabled .slider-control { opacity: .4; }
+  .switch { position: relative; flex: 0 0 38px; width: 38px; height: 22px; display: inline-flex; cursor: pointer; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch span { width: 38px; height: 22px; border-radius: 12px; background: var(--track); transition: background-color 140ms ease-out; }
+  .switch span::after { content: ''; display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--thumb); margin: 3px; transform: translateX(0); transition: transform 140ms ease-out; box-shadow: 0 1px 3px #0002; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(16px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 4px; }
+  ::-webkit-scrollbar { width: 7px; }
+  ::-webkit-scrollbar-thumb { border-radius: 5px; background: var(--track); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+}

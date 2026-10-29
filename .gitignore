@@ -18,3 +18,13 @@ obj/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Rust / Tauri / frontend output
+src-tauri/target/
+src-tauri/gen/
+node_modules/
+dist/
+.impeccable/review/
+.impeccable/mocks/
+.playwright-cli/
+output/playwright/
