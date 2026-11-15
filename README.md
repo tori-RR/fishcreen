@@ -1,6 +1,5 @@
 <div align="center">
-  <img src="assets/fishcreen.svg" width="160" height="160" alt="主屏亮起，副屏熄灭" />
-  <h1>fishcreen</h1>
+  <h1><img src="assets/readme-header.svg" width="256" height="140" alt="Fishcreen" /></h1>
 </div>
 
 一个轻量的 Windows 托盘程序，用于在双屏环境中自动降低副屏亮度并显示渐变黑幕。

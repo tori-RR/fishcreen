@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="280" viewBox="0 0 512 280">
+  <title>Fishcreen</title>
+  <desc>The fishcreen dual-display logo above a larger, closely spaced wordmark.</desc>
+  <defs>
+    <linearGradient id="frame" x1="38" y1="134" x2="469" y2="371" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#899398"/>
+      <stop offset=".36" stop-color="#39434a"/>
+      <stop offset=".7" stop-color="#151c21"/>
+      <stop offset="1" stop-color="#5c6870"/>
+    </linearGradient>
+    <linearGradient id="off" x1="45" y1="142" x2="135" y2="329" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4b5358"/>
+      <stop offset=".45" stop-color="#2d3338"/>
+      <stop offset="1" stop-color="#1c2226"/>
+    </linearGradient>
+    <linearGradient id="on" x1="161" y1="142" x2="458" y2="367" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67e7f0"/>
+      <stop offset=".28" stop-color="#24cef5"/>
+      <stop offset=".6" stop-color="#00aaf5"/>
+      <stop offset="1" stop-color="#0068e8"/>
+    </linearGradient>
+    <linearGradient id="off-sheen" x1="64" y1="141" x2="123" y2="292" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".1"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="on-sheen" x1="186" y1="142" x2="339" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="off-clip"><rect x="43" y="140" width="99" height="193" rx="18"/></clipPath>
+    <clipPath id="on-clip"><rect x="158" y="140" width="312" height="226" rx="23"/></clipPath>
+  </defs>
+  <g transform="translate(90 -74) scale(.65)">
+    <g stroke-linejoin="round">
+      <rect x="37" y="134" width="111" height="205" rx="24" fill="#141a1e" stroke="url(#frame)" stroke-width="2"/>
+      <rect x="40" y="137" width="105" height="199" rx="21" fill="#242c31" stroke="#0c1115"/>
+      <rect x="43" y="140" width="99" height="193" rx="18" fill="url(#off)"/>
+      <path d="M43 140H142V228C109 237 76 253 43 283Z" fill="url(#off-sheen)" clip-path="url(#off-clip)"/>
+      <path d="M44 158A17 17 0 0 1 61 141H124A17 17 0 0 1 141 158" fill="none" stroke="#b1bbc0" stroke-opacity=".25"/>
+      <rect x="152" y="134" width="324" height="238" rx="29" fill="#141a1f" stroke="url(#frame)" stroke-width="2"/>
+      <rect x="155" y="137" width="318" height="232" rx="26" fill="#263239" stroke="#0b1218"/>
+      <rect x="158" y="140" width="312" height="226" rx="23" fill="url(#on)"/>
+      <path d="M158 140H470V166C358 188 246 237 158 310Z" fill="url(#on-sheen)" clip-path="url(#on-clip)"/>
+      <path d="M159 163A22 22 0 0 1 181 141H447A22 22 0 0 1 469 163" fill="none" stroke="#dcfbff" stroke-opacity=".25"/>
+    </g>
+  </g>
+  <text x="256" y="258" text-anchor="middle" fill="#808080" font-family="'Segoe UI', Arial, sans-serif" font-size="88" font-weight="700" letter-spacing="-2.2">fishcreen</text>
+</svg>

@@ -7,6 +7,7 @@ The transparent 512 × 512 canvas contains rounded rectangles, paths, clipping p
 ## Files
 
 - `fishcreen.svg`: source used directly by the settings panel and browser favicon.
+- `readme-header.svg`: self-contained README lockup, using the same display geometry with reduced canvas padding and a larger wordmark. It does not change the application icon. The wordmark is neutral gray for readability on both light and dark backgrounds.
 - `fishcreen.png`: 512 × 512 RGBA export from the SVG.
 - `fishcreen.ico`: Windows export with 16, 24, 32, 48, 64 and 256 px images, all 32-bit; shared by the EXE, window and tray.
 - `fishcreen-source.png`: original generated raster reference, retained unchanged.
