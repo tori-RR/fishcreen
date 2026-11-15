@@ -18,7 +18,9 @@ use std::{
 };
 
 const CURSOR_INTERVAL: Duration = Duration::from_millis(75);
-const MONITOR_INTERVAL: Duration = Duration::from_secs(3);
+const MONITOR_INTERVAL: Duration = Duration::from_secs(30);
+const MONITOR_ERROR_INTERVAL: Duration = Duration::from_secs(3);
+const MONITOR_EVENT_DEBOUNCE: Duration = Duration::from_millis(250);
 const RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_ATTEMPTS: u8 = 3;
 
@@ -217,7 +219,7 @@ impl Engine {
         if self.commands.send(Command::Shutdown(reply)).is_ok()
             && result.recv_timeout(Duration::from_secs(6)).is_err()
         {
-            config::log("退出恢复超时；亮度恢复记录仍保留，下次启动继续恢复。");
+            config::log_error("退出恢复超时；亮度恢复记录仍保留，下次启动继续恢复。");
         }
         if let Some(handle) = self
             .controller
@@ -356,7 +358,11 @@ impl Controller {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .overlay_opacity = 0.0;
-                        this.status("黑幕区域更新失败，将自动重试");
+                        this.status_error("黑幕区域更新失败，将自动重试");
+                    }
+                    native::SystemEvent::DisplayChanged => {
+                        this.next_monitor_refresh =
+                            display_refresh_deadline(this.next_monitor_refresh, Instant::now());
                     }
                 }
             }
@@ -395,7 +401,7 @@ impl Controller {
                             let _ = reply.send(Ok(()));
                         }
                         Err(error) => {
-                            this.status(&error);
+                            this.status_error(&error);
                             let _ = reply.send(Err(error));
                         }
                     }
@@ -444,8 +450,8 @@ impl Controller {
         let _ = this.worker.send(WorkerCommand::Shutdown(done));
         match result.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(())) => config::log("调光核心已停止，退出亮度恢复完成。"),
-            Ok(Err(error)) => config::log(&format!("退出恢复失败：{error}")),
-            Err(_) => config::log("DDC 退出恢复未在 5 秒内完成；保留恢复记录。"),
+            Ok(Err(error)) => config::log_error(&format!("退出恢复失败：{error}")),
+            Err(_) => config::log_error("DDC 退出恢复未在 5 秒内完成；保留恢复记录。"),
         }
         if worker_handle.is_finished() {
             let _ = worker_handle.join();
@@ -456,11 +462,11 @@ impl Controller {
     }
 
     fn status(&self, message: &str) {
-        let mut snapshot = self.shared.lock().unwrap_or_else(|e| e.into_inner());
-        if snapshot.status != message {
-            config::log(message);
-            snapshot.status = message.into();
-        }
+        publish_status(&self.shared, message, config::log);
+    }
+
+    fn status_error(&self, message: &str) {
+        publish_status(&self.shared, message, config::log_error);
     }
 
     fn reset_activity(&mut self) {
@@ -470,7 +476,7 @@ impl Controller {
     }
 
     fn refresh_monitors(&mut self) {
-        match native::enumerate_monitors() {
+        let next_delay = match native::enumerate_monitors() {
             Ok(monitors) => {
                 let available = monitors.iter().any(|m| {
                     m.stable_id
@@ -501,10 +507,14 @@ impl Controller {
                         },
                     );
                 }
+                MONITOR_INTERVAL
             }
-            Err(error) => self.status(&format!("刷新显示器失败：{error}")),
-        }
-        self.next_monitor_refresh = Instant::now() + MONITOR_INTERVAL;
+            Err(error) => {
+                self.status_error(&format!("刷新显示器失败：{error}"));
+                MONITOR_ERROR_INTERVAL
+            }
+        };
+        self.next_monitor_refresh = Instant::now() + next_delay;
     }
 
     fn check_cursor(&mut self, now: Instant) {
@@ -524,7 +534,7 @@ impl Controller {
                     self.input_available = false;
                     self.hide_overlay();
                     self.transition(BrightnessIntent::Restored, true, true);
-                    self.status(&format!("输入桌面不可用，已暂停暗屏：{error}"));
+                    self.status_error(&format!("输入桌面不可用，已暂停暗屏：{error}"));
                 }
                 return;
             }
@@ -616,7 +626,7 @@ impl Controller {
         });
         if self.worker.send(WorkerCommand::Change(request)).is_err() {
             self.operation_pending = false;
-            self.status("DDC 线程已停止，请重新启动 fishcreen");
+            self.status_error("DDC 线程已停止，请重新启动 fishcreen");
         }
     }
 
@@ -663,15 +673,15 @@ impl Controller {
                 if requires_confirmation {
                     self.attempts = MAX_ATTEMPTS;
                     self.retry_after = None;
-                    self.status(&format!("{error}；请在设置中选择原屏幕并确认恢复"));
+                    self.status_error(&format!("{error}；请在设置中选择原屏幕并确认恢复"));
                 } else if self.attempts < MAX_ATTEMPTS {
                     self.retry_after = Some(Instant::now() + RETRY_INTERVAL);
-                    self.status(&format!(
+                    self.status_error(&format!(
                         "{error}；2 秒后重试（{}/{MAX_ATTEMPTS}）",
                         self.attempts
                     ));
                 } else {
-                    self.status(&format!("{error}；已停止重试，可点击立即恢复"));
+                    self.status_error(&format!("{error}；已停止重试，可点击立即恢复"));
                 }
             }
         }
@@ -717,7 +727,7 @@ impl Controller {
                 // Clear the animation intent as well as its cached frame, so a
                 // failed final frame is retried by the next policy sample.
                 self.hide_overlay();
-                self.status(&format!("黑幕显示失败：{error}"));
+                self.status_error(&format!("黑幕显示失败：{error}"));
             }
         }
     }
@@ -786,6 +796,26 @@ impl Controller {
             retry,
         )
     }
+}
+
+fn publish_status(shared: &Mutex<Snapshot>, message: &str, log: impl FnOnce(&str)) {
+    let changed = {
+        let mut snapshot = shared.lock().unwrap_or_else(|error| error.into_inner());
+        if snapshot.status == message {
+            false
+        } else {
+            snapshot.status = message.into();
+            true
+        }
+    };
+    // File I/O must never hold the snapshot lock needed by the UI and tray.
+    if changed {
+        log(message);
+    }
+}
+
+fn display_refresh_deadline(current: Instant, now: Instant) -> Instant {
+    current.min(now + MONITOR_EVENT_DEBOUNCE)
 }
 
 fn overlay_frame_for_target(
@@ -1063,7 +1093,7 @@ fn brightness_worker(
                 }
                 let outcome = brightness_operation(&request, &mut original, &generation);
                 if let Err(error) = &outcome {
-                    config::log(&format!("DDC 操作失败：{error}"));
+                    config::log_error(&format!("DDC 操作失败：{error}"));
                 }
                 let _ = feedback.send(Feedback {
                     generation: request.generation,
@@ -1104,7 +1134,7 @@ fn brightness_worker(
     }
     if original.is_some() {
         if let Err(error) = restore_original(&mut original, 0, 1, None) {
-            config::log(&format!("DDC 线程结束时恢复失败，保留恢复记录：{error}"));
+            config::log_error(&format!("DDC 线程结束时恢复失败，保留恢复记录：{error}"));
         }
     }
 }
@@ -1363,6 +1393,45 @@ mod tests {
 
     const PANEL_A: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_A#{GUID}";
     const PANEL_B: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_B#{GUID}";
+
+    #[test]
+    fn status_publishes_before_logging_without_holding_the_snapshot_mutex() {
+        let shared = Mutex::new(Snapshot {
+            settings: AppSettings::default(),
+            monitors: Vec::new(),
+            status: "before".into(),
+            brightness_dimmed: false,
+            overlay_opacity: 0.0,
+            recovery_requires_confirmation: None,
+        });
+        let mut logged = false;
+        publish_status(&shared, "after", |message| {
+            let snapshot = shared
+                .try_lock()
+                .expect("logging must not hold the state mutex");
+            assert_eq!(snapshot.status, message);
+            logged = true;
+        });
+        assert!(logged);
+        publish_status(&shared, "after", |_| {
+            panic!("unchanged status must not log again")
+        });
+    }
+
+    #[test]
+    fn display_notifications_coalesce_without_postponing_the_first_refresh() {
+        let now = Instant::now();
+        let fallback = now + MONITOR_INTERVAL;
+        let first = display_refresh_deadline(fallback, now);
+        assert_eq!(first, now + Duration::from_millis(250));
+        assert_eq!(
+            display_refresh_deadline(first, now + Duration::from_millis(100)),
+            first
+        );
+        let sooner = now + Duration::from_millis(20);
+        assert_eq!(display_refresh_deadline(sooner, now), sooner);
+        assert_eq!(MONITOR_INTERVAL, Duration::from_secs(30));
+    }
 
     #[test]
     fn stable_overlay_relayouts_after_a_monitor_change_without_restarting_animation() {

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_log;
 mod brightness_transition;
 mod config;
 mod engine;
@@ -60,7 +61,7 @@ fn sync_tray(app: &AppHandle) {
         move |task| dispatcher.run_on_main_thread(task),
         move || refresh_tray_on_main(&refresh_app),
     ) {
-        config::log(&format!("刷新托盘失败：{error}"));
+        config::log_error(&format!("刷新托盘失败：{error}"));
     }
 }
 
@@ -103,7 +104,7 @@ fn show_settings(app: &AppHandle) {
         .theme(window_theme(theme))
         .build();
     if let Err(error) = result {
-        config::log(&format!("打开设置面板失败：{error}"));
+        config::log_error(&format!("打开设置面板失败：{error}"));
     }
 }
 
@@ -300,7 +301,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let app = app.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     if let Err(e) = engine.set_mode(mode) {
-                        config::log(&e);
+                        config::log_error(&e);
                     }
                     sync_tray(&app);
                 });
@@ -313,7 +314,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                         .and_then(|enabled| native::set_startup_enabled(!enabled))
                     {
                         Ok(()) => {}
-                        Err(e) => config::log(&e),
+                        Err(e) => config::log_error(&e),
                     };
                     sync_tray(app);
                 }
@@ -321,7 +322,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                     let engine = app.state::<AppCore>().engine.clone();
                     tauri::async_runtime::spawn_blocking(move || {
                         if let Err(e) = engine.force_restore() {
-                            config::log(&e)
+                            config::log_error(&e)
                         }
                     });
                 }
@@ -363,14 +364,14 @@ fn main() {
         Ok(Some(guard)) => guard,
         Ok(None) => return,
         Err(e) => {
-            config::log(&e);
+            config::log_error(&e);
             return;
         }
     };
     let mut settings = match config::load() {
         Ok(value) => value,
         Err(e) => {
-            config::log(&e);
+            config::log_error(&e);
             return;
         }
     };
@@ -380,14 +381,14 @@ fn main() {
     let engine = match Engine::new(settings) {
         Ok(engine) => engine,
         Err(e) => {
-            config::log(&e);
+            config::log_error(&e);
             return;
         }
     };
     let recovery_engine = engine.clone();
     let failed_start_engine = engine.clone();
     std::panic::set_hook(Box::new(move |info| {
-        config::log(&format!("Rust panic: {info}"));
+        config::log_error(&format!("Rust panic: {info}"));
         let _ = recovery_engine.force_restore();
     }));
     let should_show = args.iter().any(|v| v == "--settings");
@@ -433,7 +434,7 @@ fn main() {
             _ => {}
         }),
         Err(e) => {
-            config::log(&format!("Tauri 启动失败：{e}"));
+            config::log_error(&format!("Tauri 启动失败：{e}"));
             failed_start_engine.shutdown();
         }
     }

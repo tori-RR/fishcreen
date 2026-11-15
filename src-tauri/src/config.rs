@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs::{self, OpenOptions},
+    fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
 };
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -348,25 +347,21 @@ fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
 }
 
 pub fn log(message: &str) {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let Ok(_guard) = LOCK.get_or_init(|| Mutex::new(())).lock() else {
-        return;
-    };
-    let directory = data_dir();
-    if fs::create_dir_all(&directory).is_err() {
-        return;
-    }
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(directory.join("app.log"))
-    {
-        let _ = writeln!(
-            file,
-            "{} [Rust] {message}",
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-        );
-    }
+    crate::app_log::write(
+        &data_dir(),
+        crate::app_log::Level::Info,
+        message,
+        &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    );
+}
+
+pub fn log_error(message: &str) {
+    crate::app_log::write(
+        &data_dir(),
+        crate::app_log::Level::Error,
+        message,
+        &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    );
 }
 
 #[cfg(test)]

@@ -51,10 +51,11 @@ use windows_sys::Win32::{
             GetShellWindow, GetWindowLongPtrW, IsIconic, IsWindow, IsWindowVisible, KillTimer,
             PostQuitMessage, PostThreadMessageW, RegisterClassW, SetLayeredWindowAttributes,
             SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, CREATESTRUCTW,
-            EDD_GET_DEVICE_INTERFACE_NAME, GA_ROOT, GWLP_USERDATA, HTTRANSPARENT, HWND_TOPMOST,
-            LWA_ALPHA, MA_NOACTIVATE, MONITORINFOF_PRIMARY, MSG, PBT_APMRESUMEAUTOMATIC,
-            PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, WM_APP,
-            WM_CLOSE, WM_DESTROY, WM_ENDSESSION, WM_MOUSEACTIVATE, WM_NCCREATE, WM_NCHITTEST,
+            DBT_DEVNODES_CHANGED, EDD_GET_DEVICE_INTERFACE_NAME, GA_ROOT, GWLP_USERDATA,
+            HTTRANSPARENT, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE, MONITORINFOF_PRIMARY, MSG,
+            PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, SWP_NOACTIVATE,
+            SWP_SHOWWINDOW, SW_HIDE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DEVICECHANGE,
+            WM_DISPLAYCHANGE, WM_ENDSESSION, WM_MOUSEACTIVATE, WM_NCCREATE, WM_NCHITTEST,
             WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_TIMER, WNDCLASSW, WS_EX_LAYERED,
             WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
         },
@@ -387,6 +388,7 @@ pub enum SystemEvent {
     Resume,
     SessionEnding,
     OverlayInvalidated,
+    DisplayChanged,
 }
 
 pub struct Overlay {
@@ -419,6 +421,14 @@ unsafe extern "system" fn overlay_proc(
         }
         WM_NCHITTEST => HTTRANSPARENT as LRESULT,
         WM_MOUSEACTIVATE => MA_NOACTIVATE as LRESULT,
+        WM_DISPLAYCHANGE => {
+            publish_system_event(window, SystemEvent::DisplayChanged);
+            0
+        }
+        WM_DEVICECHANGE if wparam as u32 == DBT_DEVNODES_CHANGED => {
+            publish_system_event(window, SystemEvent::DisplayChanged);
+            1
+        }
         WM_POWERBROADCAST => {
             match wparam as u32 {
                 PBT_APMSUSPEND => publish_system_event(window, SystemEvent::Suspend),
@@ -681,7 +691,7 @@ impl OverlayCoverage {
                     publish_system_event(window, SystemEvent::OverlayInvalidated);
                 }
                 if self.last_refresh_error.as_ref() != Some(&error) {
-                    crate::config::log(&error);
+                    crate::config::log_error(&error);
                     self.last_refresh_error = Some(error);
                 }
             }
@@ -1305,6 +1315,33 @@ mod tests {
         fn drop(&mut self) {
             unsafe { DestroyWindow(self.0) };
         }
+    }
+
+    #[test]
+    fn display_and_device_notifications_publish_without_touching_real_displays() {
+        let window = HiddenWindow::new();
+        let (sender, receiver) = mpsc::channel::<SystemEvent>();
+        let mut sender = Box::new(sender);
+        let previous = unsafe {
+            SetWindowLongPtrW(
+                window.0,
+                GWLP_USERDATA,
+                (&mut *sender as *mut mpsc::Sender<SystemEvent>) as isize,
+            )
+        };
+        unsafe { overlay_proc(window.0, WM_DISPLAYCHANGE, 32, 0) };
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(SystemEvent::DisplayChanged)
+        ));
+        unsafe { overlay_proc(window.0, WM_DEVICECHANGE, DBT_DEVNODES_CHANGED as WPARAM, 0) };
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(SystemEvent::DisplayChanged)
+        ));
+        unsafe { overlay_proc(window.0, WM_DEVICECHANGE, 0, 0) };
+        assert!(receiver.try_recv().is_err());
+        unsafe { SetWindowLongPtrW(window.0, GWLP_USERDATA, previous) };
     }
 
     #[test]

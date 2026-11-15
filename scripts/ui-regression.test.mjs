@@ -288,6 +288,29 @@ test('F03: monitor hotplug/disconnect refresh inventory and detail without disca
   assert.equal(ui.hooks.read().profile.leaveDelayMilliseconds, 2200);
 });
 
+test('F08: connected and missing monitor identities stay opaque across quotes and literal markup', async () => {
+  const identities = ['screen-1" data-f08="sentinel', 'literal-&quot;-&#34;-&amp;', String.raw`\\?\DISPLAY#DELA0E7#INSTANCE#{GUID}`, `screen'><option data-f08='extra'>`];
+  for (const identity of identities) {
+    const ui = await createHarness();
+    const next = ui.getBackend();
+    const label = 'Panel <b data-f08="name">literal</b> &quot; 副屏';
+    next.settings.targetStableId = identity;
+    next.monitors[0].stableId = identity; next.monitors[0].name = label;
+    ui.setBackend(next); await ui.poll();
+    assert.equal(ui.node('target').value, identity);
+    assert.equal(ui.node('target').options.length, 1);
+    assert.equal(ui.node('target').options[0].value, identity);
+    assert.equal(ui.node('target').options[0].textContent, label);
+    assert.equal(ui.node('target').options[0].getAttribute('data-f08'), null);
+    next.monitors = []; ui.setBackend(next); await ui.poll();
+    assert.equal(ui.node('target').options.length, 1);
+    assert.equal(ui.node('target').options[0].value, identity);
+    assert.equal(ui.node('target').value, identity);
+    assert.equal(ui.node('target').options[0].getAttribute('data-f08'), null);
+    assert.match(ui.node('target').options[0].textContent, /未连接/);
+  }
+});
+
 test('F04: an external startup toggle is synchronized and an unrelated save sends a null preference', async () => {
   const ui = await createHarness();
   const next = ui.getBackend(); next.startupEnabled = true;

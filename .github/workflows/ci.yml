@@ -1,0 +1,49 @@
+name: Windows checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          components: rustfmt
+      - name: Install locked frontend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        run: npm run check
+      - name: Build frontend
+        run: npm run build
+      - name: Run frontend regression tests
+        run: npm test
+      - name: Test dependency cache invalidation
+        run: ./scripts/frontend-deps.test.ps1
+      - name: Install isolated browser runtime
+        run: npx playwright install chromium
+      - name: Run browser regression tests
+        run: npm run test:ui
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Run Rust regression tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked -j 1

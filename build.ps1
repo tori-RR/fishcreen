@@ -14,10 +14,8 @@ try {
         (Test-Path -LiteralPath $devLoader)) {
         . $devLoader
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules'))) {
-        & npm ci --no-audit --no-fund
-        if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
-    }
+    . (Join-Path $projectRoot 'scripts\frontend-deps.ps1')
+    Ensure-FrontendDependencies -ProjectRoot $projectRoot | Out-Null
     & node '.\node_modules\@tauri-apps\cli\tauri.js' build --no-bundle -- --locked -j 1
     if ($LASTEXITCODE -ne 0) { throw 'Tauri release build failed.' }
     $artifact = Join-Path $projectRoot 'src-tauri\target\release\fishcreen.exe'
