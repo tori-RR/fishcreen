@@ -29,6 +29,14 @@ impl Clock for RealClock {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimingPolicy {
+    /// Keep every distinct precomputed step, even when blocking I/O falls behind.
+    PreserveSteps,
+    /// Catch up to elapsed time instead of replaying obsolete samples.
+    SkipExpired,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct TransitionReport {
     pub completed: bool,
@@ -67,9 +75,10 @@ fn deadline(duration: Duration, frame: usize, count: usize) -> Duration {
 /// Run a serial transition using the existing precomputed brightness curve.
 ///
 /// A blocking write cannot be interrupted. When it returns, cancellation is
-/// checked first and the next sample is chosen from the *current* elapsed time,
-/// never from the backlog of missed deadlines. The final target is not issued
-/// before `duration`, and completion requires a matching readback that was not
+/// checked first. `PreserveSteps` keeps overdue steps, whereas `SkipExpired`
+/// selects the latest sample due at the current elapsed time. Zero duration
+/// always sends only the endpoint. The final target is not issued before
+/// `duration`, and completion requires a matching readback that was not
 /// superseded while the read itself was blocked.
 #[allow(clippy::too_many_arguments)] // Explicit I/O injection keeps the hardware path and tests identical.
 pub fn run_transition(
@@ -78,6 +87,7 @@ pub fn run_transition(
     start: u32,
     target: u32,
     duration: Duration,
+    timing: TimingPolicy,
     mut is_cancelled: impl FnMut() -> bool,
     mut write: impl FnMut(u32) -> Result<(), String>,
     read: impl FnOnce() -> Result<u32, String>,
@@ -102,10 +112,12 @@ pub fn run_transition(
         }
 
         let mut selected = next;
-        while selected + 1 < values.len()
-            && deadline(duration, selected + 2, values.len()) <= elapsed
-        {
-            selected += 1;
+        if duration.is_zero() || timing == TimingPolicy::SkipExpired {
+            while selected + 1 < values.len()
+                && deadline(duration, selected + 2, values.len()) <= elapsed
+            {
+                selected += 1;
+            }
         }
         skipped += selected - next;
         let value = values[selected];
@@ -175,7 +187,11 @@ mod tests {
             .collect()
     }
 
-    fn timed_transition(write_ms: u64, read_ms: u64) -> (TransitionReport, Vec<(Duration, u32)>) {
+    fn timed_transition(
+        timing: TimingPolicy,
+        write_ms: u64,
+        read_ms: u64,
+    ) -> (TransitionReport, Vec<(Duration, u32)>) {
         let clock = FakeClock::default();
         let current = Cell::new(100);
         let events = RefCell::new(Vec::new());
@@ -186,6 +202,7 @@ mod tests {
             100,
             0,
             Duration::from_millis(300),
+            timing,
             || false,
             |value| {
                 events.borrow_mut().push((clock.elapsed(), value));
@@ -204,7 +221,7 @@ mod tests {
 
     #[test]
     fn fast_device_obeys_every_deadline_and_exact_final_duration() {
-        let (result, events) = timed_transition(0, 40);
+        let (result, events) = timed_transition(TimingPolicy::SkipExpired, 0, 40);
         assert!(result.completed);
         assert_eq!(result.writes, 30);
         assert_eq!(result.skipped, 0);
@@ -216,8 +233,47 @@ mod tests {
     }
 
     #[test]
+    fn slow_dimming_preserves_all_thirty_samples_and_extends_actual_duration() {
+        let (result, events) = timed_transition(TimingPolicy::PreserveSteps, 65, 40);
+        assert!(result.completed);
+        assert_eq!(result.writes, 30);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.elapsed, Duration::from_millis(2000));
+        assert_eq!(
+            events.iter().map(|event| event.1).collect::<Vec<_>>(),
+            descending_samples(30)
+        );
+        for (index, (at, _)) in events.iter().enumerate() {
+            assert_eq!(*at, Duration::from_millis(10 + 65 * index as u64));
+        }
+        assert_eq!(events.last(), Some(&(Duration::from_millis(1895), 0)));
+    }
+
+    #[test]
+    fn fast_device_timing_is_identical_for_both_policies() {
+        for write_ms in [0, 5, 10] {
+            assert_eq!(
+                timed_transition(TimingPolicy::PreserveSteps, write_ms, 40),
+                timed_transition(TimingPolicy::SkipExpired, write_ms, 40)
+            );
+        }
+    }
+
+    #[test]
+    fn restoration_policy_skips_expired_samples_even_when_the_target_is_lower() {
+        let (result, events) = timed_transition(TimingPolicy::SkipExpired, 65, 40);
+        assert!(result.completed);
+        assert_eq!(result.writes, 6);
+        assert_eq!(result.skipped, 24);
+        assert_eq!(result.elapsed, Duration::from_millis(440));
+        let times: Vec<_> = events.iter().map(|event| event.0.as_millis()).collect();
+        assert_eq!(times, [10, 75, 140, 205, 270, 335]);
+        assert_eq!(events.last().unwrap().1, 0);
+    }
+
+    #[test]
     fn fifty_ms_writes_skip_expired_samples_instead_of_sending_all_thirty() {
-        let (result, events) = timed_transition(50, 40);
+        let (result, events) = timed_transition(TimingPolicy::SkipExpired, 50, 40);
         assert!(result.completed);
         assert_eq!(result.writes, 7);
         assert_eq!(result.skipped, 23);
@@ -230,7 +286,7 @@ mod tests {
 
     #[test]
     fn two_hundred_ms_writes_do_not_accumulate_a_backlog() {
-        let (result, events) = timed_transition(200, 40);
+        let (result, events) = timed_transition(TimingPolicy::SkipExpired, 200, 40);
         assert!(result.completed);
         assert_eq!(result.writes, 3);
         assert_eq!(result.skipped, 27);
@@ -240,7 +296,7 @@ mod tests {
 
     #[test]
     fn one_write_longer_than_duration_is_followed_only_by_the_endpoint() {
-        let (result, events) = timed_transition(1000, 5);
+        let (result, events) = timed_transition(TimingPolicy::SkipExpired, 1000, 5);
         assert_eq!(result.writes, 2);
         assert_eq!(result.skipped, 28);
         assert_eq!(events.last(), Some(&(Duration::from_millis(1010), 0)));
@@ -249,172 +305,193 @@ mod tests {
 
     #[test]
     fn equal_integer_samples_and_the_initial_value_are_not_repeated() {
-        let clock = FakeClock::default();
-        let events = RefCell::new(Vec::new());
-        let result = run_transition(
-            &clock,
-            &[100, 80, 80, 40, 40, 0],
-            100,
-            0,
-            Duration::from_millis(600),
-            || false,
-            |value| {
-                events.borrow_mut().push((clock.elapsed(), value));
-                Ok(())
-            },
-            || Ok(0),
-        )
-        .unwrap();
-        assert_eq!(result.writes, 3);
-        assert_eq!(result.skipped, 3);
-        assert_eq!(
-            events.into_inner(),
-            vec![
-                (Duration::from_millis(200), 80),
-                (Duration::from_millis(400), 40),
-                (Duration::from_millis(600), 0),
-            ]
-        );
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let events = RefCell::new(Vec::new());
+            let result = run_transition(
+                &clock,
+                &[100, 80, 80, 40, 40, 0],
+                100,
+                0,
+                Duration::from_millis(600),
+                timing,
+                || false,
+                |value| {
+                    events.borrow_mut().push((clock.elapsed(), value));
+                    Ok(())
+                },
+                || Ok(0),
+            )
+            .unwrap();
+            assert_eq!(result.writes, 3);
+            assert_eq!(result.skipped, 3);
+            assert_eq!(
+                events.into_inner(),
+                vec![
+                    (Duration::from_millis(200), 80),
+                    (Duration::from_millis(400), 40),
+                    (Duration::from_millis(600), 0),
+                ]
+            );
+        }
     }
 
     #[test]
     fn zero_duration_sends_only_the_final_target_immediately() {
-        let clock = FakeClock::default();
-        let events = RefCell::new(Vec::new());
-        let result = run_transition(
-            &clock,
-            &[90, 80, 60, 0],
-            100,
-            0,
-            Duration::ZERO,
-            || false,
-            |value| {
-                events.borrow_mut().push((clock.elapsed(), value));
-                Ok(())
-            },
-            || Ok(0),
-        )
-        .unwrap();
-        assert_eq!(result.writes, 1);
-        assert_eq!(result.skipped, 3);
-        assert_eq!(events.into_inner(), vec![(Duration::ZERO, 0)]);
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let events = RefCell::new(Vec::new());
+            let result = run_transition(
+                &clock,
+                &[90, 80, 60, 0],
+                100,
+                0,
+                Duration::ZERO,
+                timing,
+                || false,
+                |value| {
+                    events.borrow_mut().push((clock.elapsed(), value));
+                    Ok(())
+                },
+                || Ok(0),
+            )
+            .unwrap();
+            assert_eq!(result.writes, 1);
+            assert_eq!(result.skipped, 3);
+            assert_eq!(events.into_inner(), vec![(Duration::ZERO, 0)]);
+        }
     }
 
     #[test]
     fn duplicate_endpoints_are_deferred_until_the_final_deadline() {
-        let clock = FakeClock::default();
-        let events = RefCell::new(Vec::new());
-        let result = run_transition(
-            &clock,
-            &[50, 0, 0],
-            100,
-            0,
-            Duration::from_millis(300),
-            || false,
-            |value| {
-                events.borrow_mut().push((clock.elapsed(), value));
-                Ok(())
-            },
-            || Ok(0),
-        )
-        .unwrap();
-        assert_eq!(result.writes, 2);
-        assert_eq!(result.skipped, 1);
-        assert_eq!(
-            events.into_inner(),
-            vec![
-                (Duration::from_millis(100), 50),
-                (Duration::from_millis(300), 0),
-            ]
-        );
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let events = RefCell::new(Vec::new());
+            let result = run_transition(
+                &clock,
+                &[50, 0, 0],
+                100,
+                0,
+                Duration::from_millis(300),
+                timing,
+                || false,
+                |value| {
+                    events.borrow_mut().push((clock.elapsed(), value));
+                    Ok(())
+                },
+                || Ok(0),
+            )
+            .unwrap();
+            assert_eq!(result.writes, 2);
+            assert_eq!(result.skipped, 1);
+            assert_eq!(
+                events.into_inner(),
+                vec![
+                    (Duration::from_millis(100), 50),
+                    (Duration::from_millis(300), 0),
+                ]
+            );
+        }
     }
 
     #[test]
     fn equal_start_and_target_still_verify_without_a_write_or_wait() {
-        let clock = FakeClock::default();
-        let reads = Cell::new(0);
-        let result = run_transition(
-            &clock,
-            &[],
-            25,
-            25,
-            Duration::from_millis(300),
-            || false,
-            |_| panic!("unchanged brightness must not be written"),
-            || {
-                reads.set(reads.get() + 1);
-                Ok(25)
-            },
-        )
-        .unwrap();
-        assert_eq!(result.writes, 0);
-        assert_eq!(reads.get(), 1);
-        assert!(result.completed);
-        assert_eq!(clock.elapsed(), Duration::ZERO);
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let reads = Cell::new(0);
+            let result = run_transition(
+                &clock,
+                &[],
+                25,
+                25,
+                Duration::from_millis(300),
+                timing,
+                || false,
+                |_| panic!("unchanged brightness must not be written"),
+                || {
+                    reads.set(reads.get() + 1);
+                    Ok(25)
+                },
+            )
+            .unwrap();
+            assert_eq!(result.writes, 0);
+            assert_eq!(reads.get(), 1);
+            assert!(result.completed);
+            assert_eq!(clock.elapsed(), Duration::ZERO);
+        }
     }
 
     #[test]
     fn low_brightness_span_preserves_duration_and_restoration_endpoint() {
-        let clock = FakeClock::default();
-        let events = RefCell::new(Vec::new());
-        run_transition(
-            &clock,
-            &[99, 100],
-            98,
-            100,
-            Duration::from_millis(301),
-            || false,
-            |value| {
-                events.borrow_mut().push((clock.elapsed(), value));
-                Ok(())
-            },
-            || Ok(100),
-        )
-        .unwrap();
-        assert_eq!(
-            events.into_inner(),
-            vec![
-                (Duration::from_micros(150500), 99),
-                (Duration::from_millis(301), 100),
-            ]
-        );
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let events = RefCell::new(Vec::new());
+            run_transition(
+                &clock,
+                &[99, 100],
+                98,
+                100,
+                Duration::from_millis(301),
+                timing,
+                || false,
+                |value| {
+                    events.borrow_mut().push((clock.elapsed(), value));
+                    Ok(())
+                },
+                || Ok(100),
+            )
+            .unwrap();
+            assert_eq!(
+                events.into_inner(),
+                vec![
+                    (Duration::from_micros(150500), 99),
+                    (Duration::from_millis(301), 100),
+                ]
+            );
+        }
     }
 
     #[test]
     fn cancellation_before_start_never_reads_or_writes() {
-        let clock = FakeClock::default();
-        let result = run_transition(
-            &clock,
-            &[0],
-            100,
-            0,
-            Duration::ZERO,
-            || true,
-            |_| panic!("cancelled write"),
-            || panic!("cancelled read"),
-        )
-        .unwrap();
-        assert!(!result.completed);
-        assert_eq!(result.writes, 0);
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let result = run_transition(
+                &clock,
+                &[0],
+                100,
+                0,
+                Duration::ZERO,
+                timing,
+                || true,
+                |_| panic!("cancelled write"),
+                || panic!("cancelled read"),
+            )
+            .unwrap();
+            assert!(!result.completed);
+            assert_eq!(result.writes, 0);
+        }
     }
 
     #[test]
     fn cancellation_during_wait_is_checked_in_bounded_sleep_slices() {
-        let clock = FakeClock::default();
-        let result = run_transition(
-            &clock,
-            &[0],
-            100,
-            0,
-            Duration::from_millis(300),
-            || clock.elapsed() >= Duration::from_millis(5),
-            |_| panic!("cancelled write"),
-            || panic!("cancelled read"),
-        )
-        .unwrap();
-        assert!(!result.completed);
-        assert_eq!(result.writes, 0);
-        assert_eq!(clock.elapsed(), Duration::from_millis(10));
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let result = run_transition(
+                &clock,
+                &[0],
+                100,
+                0,
+                Duration::from_millis(300),
+                timing,
+                || clock.elapsed() >= Duration::from_millis(5),
+                |_| panic!("cancelled write"),
+                || panic!("cancelled read"),
+            )
+            .unwrap();
+            assert!(!result.completed);
+            assert_eq!(result.writes, 0);
+            assert_eq!(clock.elapsed(), Duration::from_millis(10));
+        }
     }
 
     #[test]
@@ -427,6 +504,7 @@ mod tests {
             100,
             0,
             Duration::from_millis(100),
+            TimingPolicy::SkipExpired,
             || cancelled.get(),
             |_| {
                 clock.advance(Duration::from_millis(200));
@@ -441,133 +519,181 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_during_final_write_prevents_verification() {
+    fn cancellation_during_slow_dimming_stops_before_any_more_io() {
         let clock = FakeClock::default();
         let cancelled = Cell::new(false);
+        let writes = Cell::new(0);
         let result = run_transition(
             &clock,
-            &[0],
+            &descending_samples(30),
             100,
             0,
-            Duration::ZERO,
+            Duration::from_millis(300),
+            TimingPolicy::PreserveSteps,
             || cancelled.get(),
             |_| {
+                assert_eq!(writes.replace(writes.get() + 1), 0);
+                clock.advance(Duration::from_millis(65));
                 cancelled.set(true);
                 Ok(())
             },
-            || panic!("must not read after cancellation"),
+            || panic!("cancelled dimming must not read back"),
         )
         .unwrap();
         assert!(!result.completed);
         assert_eq!(result.writes, 1);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(writes.get(), 1);
+        assert_eq!(clock.elapsed(), Duration::from_millis(75));
+    }
+
+    #[test]
+    fn cancellation_during_final_write_prevents_verification() {
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let cancelled = Cell::new(false);
+            let result = run_transition(
+                &clock,
+                &[0],
+                100,
+                0,
+                Duration::ZERO,
+                timing,
+                || cancelled.get(),
+                |_| {
+                    cancelled.set(true);
+                    Ok(())
+                },
+                || panic!("must not read after cancellation"),
+            )
+            .unwrap();
+            assert!(!result.completed);
+            assert_eq!(result.writes, 1);
+        }
     }
 
     #[test]
     fn cancellation_while_readback_is_blocked_cannot_report_completion() {
-        let clock = FakeClock::default();
-        let cancelled = Cell::new(false);
-        let result = run_transition(
-            &clock,
-            &[0],
-            100,
-            0,
-            Duration::ZERO,
-            || cancelled.get(),
-            |_| Ok(()),
-            || {
-                clock.advance(Duration::from_millis(40));
-                cancelled.set(true);
-                Ok(0)
-            },
-        )
-        .unwrap();
-        assert!(!result.completed);
-        assert_eq!(result.writes, 1);
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let cancelled = Cell::new(false);
+            let result = run_transition(
+                &clock,
+                &[0],
+                100,
+                0,
+                Duration::ZERO,
+                timing,
+                || cancelled.get(),
+                |_| Ok(()),
+                || {
+                    clock.advance(Duration::from_millis(40));
+                    cancelled.set(true);
+                    Ok(0)
+                },
+            )
+            .unwrap();
+            assert!(!result.completed);
+            assert_eq!(result.writes, 1);
+        }
     }
 
     #[test]
     fn write_failure_propagates_without_reading_or_sending_another_sample() {
-        let clock = FakeClock::default();
-        let result = run_transition(
-            &clock,
-            &[50, 0],
-            100,
-            0,
-            Duration::from_millis(100),
-            || false,
-            |_| Err("write failed".into()),
-            || panic!("failed write must not be reported as restored"),
-        );
-        assert_eq!(result, Err("write failed".into()));
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let result = run_transition(
+                &clock,
+                &[50, 0],
+                100,
+                0,
+                Duration::from_millis(100),
+                timing,
+                || false,
+                |_| Err("write failed".into()),
+                || panic!("failed write must not be reported as restored"),
+            );
+            assert_eq!(result, Err("write failed".into()));
+        }
     }
 
     #[test]
     fn read_failure_or_mismatch_cannot_report_completion() {
-        let clock = FakeClock::default();
-        let failed = run_transition(
-            &clock,
-            &[0],
-            100,
-            0,
-            Duration::ZERO,
-            || false,
-            |_| Ok(()),
-            || Err("read failed".into()),
-        );
-        assert_eq!(failed, Err("read failed".into()));
-        let mismatch = run_transition(
-            &clock,
-            &[0],
-            100,
-            0,
-            Duration::ZERO,
-            || false,
-            |_| Ok(()),
-            || Ok(5),
-        );
-        assert!(mismatch.unwrap_err().contains("目标 0，实际 5"));
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let failed = run_transition(
+                &clock,
+                &[0],
+                100,
+                0,
+                Duration::ZERO,
+                timing,
+                || false,
+                |_| Ok(()),
+                || Err("read failed".into()),
+            );
+            assert_eq!(failed, Err("read failed".into()));
+            let mismatch = run_transition(
+                &clock,
+                &[0],
+                100,
+                0,
+                Duration::ZERO,
+                timing,
+                || false,
+                |_| Ok(()),
+                || Ok(5),
+            );
+            assert!(mismatch.unwrap_err().contains("目标 0，实际 5"));
+        }
     }
 
     #[test]
     fn malformed_curve_is_rejected_before_io() {
-        let clock = FakeClock::default();
-        for values in [vec![], vec![50, 1]] {
-            let result = run_transition(
-                &clock,
-                &values,
-                100,
-                0,
-                Duration::ZERO,
-                || false,
-                |_| panic!("invalid transition must not write"),
-                || panic!("invalid transition must not read"),
-            );
-            assert!(result.is_err());
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            for values in [vec![], vec![50, 1]] {
+                let result = run_transition(
+                    &clock,
+                    &values,
+                    100,
+                    0,
+                    Duration::ZERO,
+                    timing,
+                    || false,
+                    |_| panic!("invalid transition must not write"),
+                    || panic!("invalid transition must not read"),
+                );
+                assert!(result.is_err());
+            }
         }
     }
 
     #[test]
     fn fractional_deadlines_do_not_advance_the_final_target_early() {
-        let clock = FakeClock::default();
-        let events = RefCell::new(Vec::new());
-        run_transition(
-            &clock,
-            &[67, 33, 0],
-            100,
-            0,
-            Duration::from_millis(301),
-            || false,
-            |value| {
-                events.borrow_mut().push((clock.elapsed(), value));
-                Ok(())
-            },
-            || Ok(0),
-        )
-        .unwrap();
-        assert_eq!(
-            events.borrow().last(),
-            Some(&(Duration::from_millis(301), 0))
-        );
-        assert!(events.borrow()[0].0 < Duration::from_millis(101));
+        for timing in [TimingPolicy::PreserveSteps, TimingPolicy::SkipExpired] {
+            let clock = FakeClock::default();
+            let events = RefCell::new(Vec::new());
+            run_transition(
+                &clock,
+                &[67, 33, 0],
+                100,
+                0,
+                Duration::from_millis(301),
+                timing,
+                || false,
+                |value| {
+                    events.borrow_mut().push((clock.elapsed(), value));
+                    Ok(())
+                },
+                || Ok(0),
+            )
+            .unwrap();
+            assert_eq!(
+                events.borrow().last(),
+                Some(&(Duration::from_millis(301), 0))
+            );
+            assert!(events.borrow()[0].0 < Duration::from_millis(101));
+        }
     }
 }

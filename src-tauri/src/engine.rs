@@ -1,5 +1,5 @@
 use crate::{
-    brightness_transition::{run_transition, RealClock},
+    brightness_transition::{run_transition, RealClock, TimingPolicy},
     config::{self, AppSettings, Mode, Profile},
     native::{self, BrightnessHandle, Monitor, Overlay, Rect},
     overlay_animation::{opacity_alpha, OverlayAnimator},
@@ -1198,6 +1198,7 @@ fn brightness_operation(
         duration,
         request.profile.brightness_fade_frames,
         request.profile.brightness_fade_exponent,
+        TimingPolicy::PreserveSteps,
         cancel,
     )
 }
@@ -1231,6 +1232,7 @@ fn restore_original(
         duration_ms,
         frames,
         1.0,
+        TimingPolicy::SkipExpired,
         cancel,
     );
     if !complete_recovery(original, &record, outcome, clear_recovery)? {
@@ -1324,6 +1326,7 @@ fn cancelled(cancel: Option<(&AtomicU64, u64)>) -> bool {
     cancel.is_some_and(|(generation, expected)| generation.load(Ordering::Acquire) != expected)
 }
 
+#[allow(clippy::too_many_arguments)] // Timing is selected by intent, not brightness direction.
 fn fade_brightness(
     handle: &BrightnessHandle,
     start: u32,
@@ -1331,6 +1334,7 @@ fn fade_brightness(
     duration_ms: u32,
     frames: u32,
     exponent: f64,
+    timing: TimingPolicy,
     cancel: Option<(&AtomicU64, u64)>,
 ) -> Result<bool, String> {
     let values = brightness_frames(start, target, duration_ms, frames, exponent);
@@ -1341,6 +1345,7 @@ fn fade_brightness(
         start,
         target,
         Duration::from_millis(duration_ms as u64),
+        timing,
         || cancelled(cancel),
         |value| handle.set(value),
         || handle.read().map(|brightness| brightness.current),
