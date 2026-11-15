@@ -1,10 +1,10 @@
 <div align="center">
   <h1><img src="assets/readme-header.svg" width="256" height="140" alt="Fishcreen" /></h1>
+  <p>
+    <code>v1.2.0</code><br />
+    一个轻量的 Windows 托盘程序，用于在双屏环境中自动降低副屏亮度并显示渐变黑幕。
+  </p>
 </div>
-
-一个轻量的 Windows 托盘程序，用于在双屏环境中自动降低副屏亮度并显示渐变黑幕。
-
-当前版本：`1.2.0`
 
 ## 运行环境
 
