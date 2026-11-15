@@ -20,7 +20,7 @@ let busy = false;
 let customDraft: Profile | null = null;
 const systemTheme = matchMedia('(prefers-color-scheme: dark)');
 const preview = !isTauri();
-const appIcon = new URL('../assets/fishcreen.png', import.meta.url).href;
+const appIcon = new URL('../assets/fishcreen.svg', import.meta.url).href;
 
 const icons = {
   screen: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',

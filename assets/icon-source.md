@@ -1,25 +1,30 @@
 # fishcreen icon
 
-Generated using the built-in `image_gen.imagegen` tool (not the CLI/API fallback), 2026-10-30.
+`fishcreen.svg` is the editable vector source, redrawn from the existing approved icon on 2026-11-15. It retains the unlit portrait secondary display on the left and the lit blue landscape primary display on the right.
 
-The user's supplied sketch establishes the composition: an unlit portrait secondary display on the left, and a lit blue landscape primary display on the right.
+The transparent 512 × 512 canvas contains rounded rectangles, paths, clipping paths and linear gradients only. It has no embedded bitmap, font, script or external resource. The original composition, blue screen, graphite display and restrained edge highlights are preserved.
 
 ## Files
 
-- `fishcreen-source.png`: original generated transparent raster (1536 × 1024).
-- `fishcreen.png`: square transparent app image, mechanically fitted using Tauri's icon generator.
-- `fishcreen.ico`: Windows icon with 16, 24, 32, 48, 64 and 256 px images, all 32-bit.
-- `fishcreen-legacy.ico`: previous app icon retained for rollback.
+- `fishcreen.svg`: source used directly by the settings panel and browser favicon.
+- `fishcreen.png`: 512 × 512 RGBA export from the SVG.
+- `fishcreen.ico`: Windows export with 16, 24, 32, 48, 64 and 256 px images, all 32-bit; shared by the EXE, window and tray.
+- `fishcreen-source.png`: original generated raster reference, retained unchanged.
+- `fishcreen-legacy.ico`: earlier icon retained unchanged.
 
-The square PNG and ICO were produced with:
+## Regenerate
+
+After installing project dependencies, run:
 
 ```powershell
-node .\node_modules\@tauri-apps\cli\tauri.js icon .\assets\fishcreen-source.png --fit contain --output .\src-tauri\target\icon-build
+.\scripts\build-icons.ps1
 ```
 
-`icon-build\icon.png` and `icon-build\icon.ico` are copied to the final names above. Transparency was verified through alpha samples, and the 16 px and 32 px results were visually inspected. No manual image editing was applied.
+This uses the project's Tauri CLI to render the SVG into `src-tauri\target\svg-icon-build`, then copies its PNG and ICO exports into `assets`. Windows build resources are automatically regenerated when the ICO changes.
 
-## Generation prompt
+## Original raster reference
+
+The original raster was generated using the built-in `image_gen.imagegen` tool on 2026-10-30, based on the user's sketch. It is retained as a reference; it is no longer the production source. Its original generation prompt follows.
 
 ```text
 Use case: sketch-to-render.
