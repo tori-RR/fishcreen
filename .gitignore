@@ -28,3 +28,6 @@ dist/
 .impeccable/mocks/
 .playwright-cli/
 output/playwright/
+
+# Local project documentation
+/README_LOG.MD
