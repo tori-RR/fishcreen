@@ -3,13 +3,14 @@
 mod config;
 mod engine;
 mod native;
+mod tray_refresh;
 
 use config::{AppSettings, Mode, ThemeMode};
 use engine::{Engine, Snapshot};
 use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, OnceLock,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -20,9 +21,14 @@ use tauri::{
 struct AppCore {
     engine: Arc<Engine>,
     exiting: AtomicBool,
-    mode_items: Mutex<Vec<(Mode, CheckMenuItem<tauri::Wry>)>>,
-    startup_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
-    status_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    tray_items: OnceLock<TrayItems>,
+    tray_refresh: Arc<tray_refresh::RefreshGate>,
+}
+
+struct TrayItems {
+    modes: Vec<(Mode, CheckMenuItem<tauri::Wry>)>,
+    startup: CheckMenuItem<tauri::Wry>,
+    status: MenuItem<tauri::Wry>,
 }
 
 #[derive(Serialize)]
@@ -45,32 +51,30 @@ fn state_for(core: &AppCore) -> UiState {
 }
 
 fn sync_tray(app: &AppHandle) {
+    let gate = app.state::<AppCore>().tray_refresh.clone();
+    let dispatcher = app.clone();
+    let refresh_app = app.clone();
+    if let Err(error) = gate.request(
+        move |task| dispatcher.run_on_main_thread(task),
+        move || refresh_tray_on_main(&refresh_app),
+    ) {
+        config::log(&format!("刷新托盘失败：{error}"));
+    }
+}
+
+fn refresh_tray_on_main(app: &AppHandle) {
     let core = app.state::<AppCore>();
+    let Some(items) = core.tray_items.get() else {
+        return;
+    };
     let snapshot = core.engine.snapshot();
-    for (mode, item) in core
-        .mode_items
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-    {
+    for (mode, item) in &items.modes {
         let _ = item.set_checked(*mode == snapshot.settings.mode);
     }
-    if let Some(item) = core
-        .startup_item
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
-        let _ = item.set_checked(native::startup_enabled().unwrap_or(false));
-    }
-    if let Some(item) = core
-        .status_item
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
-        let _ = item.set_text(&snapshot.status);
-    };
+    let _ = items
+        .startup
+        .set_checked(native::startup_enabled().unwrap_or(false));
+    let _ = items.status.set_text(&snapshot.status);
 }
 
 fn window_theme(theme: ThemeMode) -> Option<Theme> {
@@ -102,9 +106,24 @@ fn show_settings(app: &AppHandle) {
 }
 
 #[tauri::command]
-fn get_state(app: AppHandle, core: State<'_, AppCore>) -> UiState {
-    sync_tray(&app);
+fn get_state(core: State<'_, AppCore>) -> UiState {
     state_for(&core)
+}
+
+fn update_startup_preference(
+    requested: Option<bool>,
+    read: impl FnOnce() -> Result<bool, String>,
+    write: impl FnOnce(bool) -> Result<(), String>,
+) -> Result<Option<(bool, bool)>, String> {
+    let Some(desired) = requested else {
+        return Ok(None);
+    };
+    let old = read()?;
+    if old == desired {
+        return Ok(None);
+    }
+    write(desired)?;
+    Ok(Some((old, desired)))
 }
 
 #[tauri::command]
@@ -112,20 +131,25 @@ async fn apply_settings(
     app: AppHandle,
     core: State<'_, AppCore>,
     settings: AppSettings,
-    startup_enabled: bool,
+    startup_enabled: Option<bool>,
 ) -> Result<UiState, String> {
     let engine = core.engine.clone();
-    let old = native::startup_enabled()?;
-    if old != startup_enabled {
-        native::set_startup_enabled(startup_enabled)?;
-    }
+    // An untouched startup field must not overwrite a newer tray/registry value.
+    let startup_change = update_startup_preference(
+        startup_enabled,
+        native::startup_enabled,
+        native::set_startup_enabled,
+    )?;
     let theme = settings.theme_mode;
     let applied = tauri::async_runtime::spawn_blocking(move || engine.apply_settings(settings))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+        .and_then(|result| result);
     if let Err(error) = applied {
-        if old != startup_enabled {
-            let _ = native::set_startup_enabled(old);
+        if let Some((old, desired)) = startup_change {
+            if native::startup_enabled().ok() == Some(desired) {
+                let _ = native::set_startup_enabled(old);
+            }
         }
         return Err(error);
     }
@@ -142,6 +166,20 @@ async fn restore_brightness(core: State<'_, AppCore>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || engine.force_restore())
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn confirm_recovery_target(
+    app: AppHandle,
+    core: State<'_, AppCore>,
+    target: String,
+) -> Result<UiState, String> {
+    let engine = core.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || engine.confirm_recovery_target(target))
+        .await
+        .map_err(|e| e.to_string())??;
+    sync_tray(&app);
+    Ok(state_for(&core))
 }
 
 #[tauri::command]
@@ -208,29 +246,34 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &sep3, &exit,
         ],
     )?;
-    *app.state::<AppCore>()
-        .mode_items
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = vec![
-        (Mode::Daily, daily),
-        (Mode::Movie, movie),
-        (Mode::Custom, custom),
-        (Mode::Off, off),
-    ];
-    *app.state::<AppCore>()
-        .startup_item
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(startup);
-    *app.state::<AppCore>()
-        .status_item
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(status);
+    let items = TrayItems {
+        modes: vec![
+            (Mode::Daily, daily),
+            (Mode::Movie, movie),
+            (Mode::Custom, custom),
+            (Mode::Off, off),
+        ],
+        startup,
+        status,
+    };
+    app.state::<AppCore>()
+        .tray_items
+        .set(items)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::AlreadyExists, "托盘已初始化"))?;
     let mut builder = TrayIconBuilder::with_id("fishcreen")
         .tooltip("fishcreen · Rust + Tauri")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
-            sync_tray(tray.app_handle());
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Right,
+                    ..
+                }
+            ) {
+                sync_tray(tray.app_handle());
+            }
             if matches!(
                 event,
                 TrayIconEvent::Click {
@@ -350,14 +393,14 @@ fn main() {
         .manage(AppCore {
             engine,
             exiting: AtomicBool::new(false),
-            mode_items: Mutex::new(Vec::new()),
-            startup_item: Mutex::new(None),
-            status_item: Mutex::new(None),
+            tray_items: OnceLock::new(),
+            tray_refresh: Arc::new(tray_refresh::RefreshGate::default()),
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
             apply_settings,
             restore_brightness,
+            confirm_recovery_target,
             close_settings
         ])
         .setup(move |app| {
@@ -391,5 +434,51 @@ fn main() {
             config::log(&format!("Tauri 启动失败：{e}"));
             failed_start_engine.shutdown();
         }
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+
+    #[test]
+    fn untouched_startup_preference_never_reads_or_writes_the_registry() {
+        let result = update_startup_preference(
+            None,
+            || panic!("untouched field must not be read"),
+            |_| panic!("untouched field must not be written"),
+        );
+        assert_eq!(result, Ok(None));
+    }
+
+    #[test]
+    fn unchanged_explicit_startup_preference_does_not_write() {
+        assert_eq!(
+            update_startup_preference(Some(true), || Ok(true), |_| panic!("no change")),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn explicitly_edited_startup_preference_writes_the_requested_value() {
+        let mut actual = None;
+        let result = update_startup_preference(
+            Some(false),
+            || Ok(true),
+            |value| {
+                actual = Some(value);
+                Ok(())
+            },
+        );
+        assert_eq!(actual, Some(false));
+        assert_eq!(result, Ok(Some((true, false))));
+    }
+
+    #[test]
+    fn startup_failure_is_returned_before_settings_are_applied() {
+        assert_eq!(
+            update_startup_preference(Some(true), || Ok(false), |_| Err("denied".into())),
+            Err("denied".into())
+        );
     }
 }

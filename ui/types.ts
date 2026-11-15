@@ -33,6 +33,7 @@ export interface AppState {
   brightnessDimmed: boolean;
   overlayOpacity: number;
   startupEnabled: boolean;
+  recoveryRequiresConfirmation?: string | null;
   version: string;
   shell: string;
 }

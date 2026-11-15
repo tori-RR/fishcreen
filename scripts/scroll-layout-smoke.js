@@ -17,14 +17,14 @@ async (page) => {
     const footer = document.querySelector('footer').getBoundingClientRect();
     const status = document.getElementById('live-status').getBoundingClientRect();
     const restore = document.getElementById('restore').getBoundingClientRect();
-    const rows = [...main.querySelectorAll('.setting-row')].map(row => {
+    const rows = [...main.querySelectorAll('.setting-row')].filter(row => !row.hidden && row.getClientRects().length).map(row => {
       const copy = row.querySelector(':scope > .setting-copy');
-      const control = row.querySelector(':scope > .slider-control, :scope > select, :scope > .switch');
+      const control = row.querySelector(':scope > .slider-control, :scope > select, :scope > .switch, :scope > button');
       const bounds = row.getBoundingClientRect();
       const copyBounds = copy.getBoundingClientRect();
       const controlBounds = control.getBoundingClientRect();
       return {
-        name: copy.querySelector('label').textContent.trim(),
+        name: (copy.querySelector('label')?.textContent ?? copy.textContent).trim(),
         collision: Math.min(copyBounds.right, controlBounds.right) - Math.max(copyBounds.left, controlBounds.left) > 1
           && Math.min(copyBounds.bottom, controlBounds.bottom) - Math.max(copyBounds.top, controlBounds.top) > 1,
         overflow: controlBounds.left < bounds.left - 1 || controlBounds.right > bounds.right + 1

@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --no-bundle",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "node --test scripts/form-state.test.mjs scripts/ui-regression.test.mjs"
   },
   "dependencies": { "@tauri-apps/api": "^2.9.0" },
   "devDependencies": {

@@ -115,11 +115,29 @@ pub struct Monitor {
     pub primary: bool,
 }
 
+#[derive(Clone)]
 struct ActiveMonitor {
     monitor: Monitor,
     handle: HMONITOR,
     interface_id: String,
     model_id: String,
+}
+
+/// Windows device-interface identity, not the model token shared by identical panels.
+pub fn is_concrete_monitor_id(value: &str) -> bool {
+    let mut parts = value.split('#');
+    parts
+        .next()
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(r"\\?\DISPLAY"))
+        && parts.next().is_some_and(|part| !part.is_empty())
+        && parts.next().is_some_and(|part| !part.is_empty())
+        && parts.next().is_some_and(|part| !part.is_empty())
+}
+
+pub fn monitor_model_id(value: &str) -> Option<&str> {
+    is_concrete_monitor_id(value)
+        .then(|| value.split('#').nth(1))
+        .flatten()
 }
 
 unsafe extern "system" fn collect_monitor(
@@ -162,6 +180,10 @@ unsafe extern "system" fn collect_monitor(
     }
 
     let interface_id = from_wide(&device.DeviceID);
+    if !is_concrete_monitor_id(&interface_id) {
+        // A model or GDI label is not enough evidence to identify a physical panel.
+        return 1;
+    }
     let gdi_name = from_wide(&info.szDevice);
     let model_id = interface_id
         .split('#')
@@ -178,7 +200,7 @@ unsafe extern "system" fn collect_monitor(
     let bounds = info.monitorInfo.rcMonitor;
     monitors.push(ActiveMonitor {
         monitor: Monitor {
-            stable_id: model_id.clone(),
+            stable_id: interface_id.clone(),
             name,
             gdi_name,
             bounds: Rect {
@@ -210,18 +232,25 @@ fn active_monitors() -> Result<Vec<ActiveMonitor>, String> {
         return Err(win_error("枚举显示器失败"));
     }
 
+    distinguish_monitor_names(&mut monitors);
+    Ok(monitors)
+}
+
+fn distinguish_monitor_names(monitors: &mut [ActiveMonitor]) {
     let mut counts = HashMap::new();
-    for monitor in &monitors {
+    for monitor in monitors.iter() {
         *counts.entry(monitor.model_id.clone()).or_insert(0usize) += 1;
     }
-    for monitor in &mut monitors {
+    for monitor in monitors.iter_mut() {
         if counts.get(&monitor.model_id).copied().unwrap_or(0) > 1 {
-            monitor.monitor.stable_id = monitor.interface_id.clone();
             monitor.monitor.name =
                 format!("{} · {}", monitor.monitor.name, monitor.monitor.gdi_name);
         }
     }
-    Ok(monitors)
+}
+
+fn matches_concrete_monitor(monitor: &ActiveMonitor, target: &str) -> bool {
+    is_concrete_monitor_id(target) && monitor.interface_id.eq_ignore_ascii_case(target)
 }
 
 pub fn enumerate_monitors() -> Result<Vec<Monitor>, String> {
@@ -254,23 +283,23 @@ pub struct Brightness {
 
 pub struct BrightnessHandle {
     physical: Vec<PHYSICAL_MONITOR>,
+    target_id: String,
+    model_id: String,
 }
 
 impl BrightnessHandle {
     pub fn open(stable_id: &str) -> Result<Self, String> {
-        if stable_id.trim().is_empty() {
-            return Err("未选择生效屏幕".to_owned());
+        if !is_concrete_monitor_id(stable_id) {
+            return Err(
+                "旧版屏幕选择只有型号，请在设置中重新选择具体屏幕；未执行硬件操作".to_owned(),
+            );
         }
         let matches: Vec<_> = active_monitors()?
             .into_iter()
-            .filter(|item| {
-                item.monitor.stable_id.eq_ignore_ascii_case(stable_id)
-                    || item.interface_id.eq_ignore_ascii_case(stable_id)
-                    || item.model_id.eq_ignore_ascii_case(stable_id)
-            })
+            .filter(|item| matches_concrete_monitor(item, stable_id))
             .collect();
         if matches.len() > 1 {
-            return Err("发现多台同型号显示器，请在设置中重新选择具体屏幕".to_owned());
+            return Err("显示器设备身份不唯一，已拒绝硬件操作，请检查显示拓扑".to_owned());
         }
         let monitor = matches
             .into_iter()
@@ -293,7 +322,19 @@ impl BrightnessHandle {
         {
             return Err(win_error("打开物理显示器失败"));
         }
-        Ok(Self { physical })
+        Ok(Self {
+            physical,
+            target_id: monitor.interface_id,
+            model_id: monitor.model_id,
+        })
+    }
+
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    pub fn model_id(&self) -> &str {
+        &self.model_id
     }
 
     pub fn read(&self) -> Result<Brightness, String> {
@@ -1010,6 +1051,63 @@ impl Drop for SingleInstanceGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PANEL_A: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_A#{GUID}";
+    const PANEL_B: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_B#{GUID}";
+
+    fn panel(identity: &str) -> ActiveMonitor {
+        ActiveMonitor {
+            monitor: Monitor {
+                stable_id: identity.into(),
+                name: "Dell S2417DG".into(),
+                gdi_name: "DISPLAY1".into(),
+                bounds: Rect {
+                    left: 0,
+                    top: 0,
+                    right: 1440,
+                    bottom: 2560,
+                },
+                primary: false,
+            },
+            handle: null_mut(),
+            interface_id: identity.into(),
+            model_id: "DELA0E7".into(),
+        }
+    }
+
+    #[test]
+    fn concrete_identity_survives_identical_panel_hotplug() {
+        let mut single = vec![panel(PANEL_A)];
+        distinguish_monitor_names(&mut single);
+        let saved = single[0].monitor.stable_id.clone();
+        let mut duplicate = vec![panel(PANEL_A), panel(PANEL_B)];
+        distinguish_monitor_names(&mut duplicate);
+        assert_eq!(duplicate[0].monitor.stable_id, saved);
+        assert_ne!(
+            duplicate[0].monitor.stable_id,
+            duplicate[1].monitor.stable_id
+        );
+        duplicate.remove(1);
+        distinguish_monitor_names(&mut duplicate);
+        assert_eq!(duplicate[0].monitor.stable_id, saved);
+        assert!(matches_concrete_monitor(&duplicate[0], &saved));
+    }
+
+    #[test]
+    fn monitor_model_is_never_hardware_identity() {
+        let original = panel(PANEL_A);
+        let replacement = panel(PANEL_B);
+        assert!(!matches_concrete_monitor(&original, "DELA0E7"));
+        assert!(!matches_concrete_monitor(&replacement, PANEL_A));
+        assert!(matches_concrete_monitor(
+            &original,
+            &PANEL_A.to_ascii_lowercase()
+        ));
+        assert!(!is_concrete_monitor_id("DISPLAY1"));
+        assert!(!is_concrete_monitor_id(r"\\?\DISPLAY#DELA0E7##{GUID}"));
+        assert_eq!(monitor_model_id(PANEL_A), Some("DELA0E7"));
+        assert_eq!(monitor_model_id("DELA0E7"), None);
+    }
     use windows_sys::Win32::Graphics::Gdi::{GetWindowRgn, PtInRegion};
 
     #[test]

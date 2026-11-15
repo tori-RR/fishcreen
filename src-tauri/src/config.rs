@@ -374,6 +374,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ipc_profile_rejects_fractional_integer_fields_before_normalization() {
+        for key in [
+            "leaveDelayMilliseconds",
+            "idleBlackoutMilliseconds",
+            "blackoutRecoveryMilliseconds",
+            "brightnessRecoveryMilliseconds",
+            "brightnessRecoveryFrames",
+            "brightnessFadeDurationMilliseconds",
+            "brightnessFadeFrames",
+        ] {
+            let mut payload = serde_json::to_value(Profile::daily()).unwrap();
+            payload[key] = serde_json::json!(5.5);
+            assert!(serde_json::from_value::<Profile>(payload).is_err(), "{key}");
+        }
+        let payload = serde_json::json!({
+            "brightnessFadeFrames": 6,
+            "brightnessFadeDurationMilliseconds": 300,
+            "brightnessFadeExponent": 2.4,
+        });
+        let parsed: Profile = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.brightness_fade_frames, 6);
+        assert_eq!(parsed.brightness_fade_duration_milliseconds, 300);
+        assert_eq!(parsed.brightness_fade_exponent, 2.4);
+    }
+
+    #[test]
     fn legacy_steps_migrate_and_frames_take_precedence() {
         let settings = parse_settings(concat!(
             "\u{feff}Mode=Custom\r\nThemeMode=Dark\r\nTargetStableId=DELA0E7\r\n",
