@@ -52,28 +52,27 @@ function slider(key: keyof Profile) {
       <label class="number-field"><span class="sr-only">${s.label}数值</span><input type="number" id="${s.key}-number" min="${s.min}" max="${s.max}" step="${s.step}" aria-label="${s.label}数值"/><span>${s.unit}</span></label>
     </div></div>`;
 }
-function toggle(id: string, title: string, description: string) {
-  return `<div class="setting-row"><div class="setting-copy"><label for="${id}">${title}</label><p id="${id}-hint">${description}</p></div><label class="switch"><input type="checkbox" id="${id}" aria-describedby="${id}-hint"/><span aria-hidden="true"></span></label></div>`;
+function toggle(id: string, title: string, description = '') {
+  return `<div class="setting-row"><div class="setting-copy"><label for="${id}">${title}</label>${description ? `<p id="${id}-hint">${description}</p>` : ''}</div><label class="switch"><input type="checkbox" id="${id}"${description ? ` aria-describedby="${id}-hint"` : ''}/><span aria-hidden="true"></span></label></div>`;
 }
 function section(title: string, iconName: keyof typeof icons, content: string, note = '') {
   return `<section class="setting-section"><h2>${icon(iconName)}${title}</h2><div class="section-panel">${content}</div>${note ? `<p class="section-note">${note}</p>` : ''}</section>`;
 }
 
 el('app').innerHTML = `
-  <header class="app-header"><div class="brand"><img class="app-icon" src="${appIcon}" alt=""/><div><h1>fishcreen<span class="version" id="version">Rust + Tauri</span></h1><p>让副屏安静一点。</p></div></div><button class="text-button" id="restore">${icon('return')}立即恢复</button></header>
+  <header class="app-header"><div class="brand"><img class="app-icon" src="${appIcon}" alt=""/><div class="brand-copy"><h1>fishcreen<span class="version" id="version"></span></h1><div class="status-strip" role="status"><span class="status-dot" aria-hidden="true"></span><span id="live-status">正在连接调光核心…</span></div></div></div><button class="text-button" id="restore">${icon('return')}立即恢复</button></header>
   <main id="settings-content" aria-label="fishcreen 设置">
     ${preview ? '<div class="preview-note">界面预览 · 示例数据，不控制显示器</div>' : ''}
     ${section('屏幕与模式', 'screen', `
       <div class="setting-row"><div class="setting-copy"><label for="target">生效屏幕</label><p id="monitor-detail">正在读取显示器…</p></div><select id="target" aria-describedby="monitor-detail"></select></div>
       <div class="setting-row"><div class="setting-copy"><label for="mode">运行模式</label><p id="mode-hint">预设之外的修改，都会保存在自定义中</p></div><select id="mode">${Object.entries(modeNames).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
     `)}
-    <div class="status-strip" role="status"><span class="status-dot"></span><span id="live-status">正在连接调光核心…</span></div>
     ${section('离开时，渐渐变暗', 'dim', slider('leaveDelayMilliseconds') + toggle('brightnessFadeEnabled', '亮度渐变', '使用前快后慢的曲线降低硬件亮度') + slider('brightnessFadeDurationMilliseconds') + slider('brightnessFadeFrames') + slider('brightnessFadeExponent'), '硬件亮度通过 DDC 控制。帧数较高时，显示器响应可能延长实际过渡时间。')}
     ${section('回来时，恢复亮度', 'return', slider('brightnessRecoveryMilliseconds') + slider('brightnessRecoveryFrames'))}
     ${section('空闲时，收起画面', 'moon', slider('idleBlackoutMilliseconds') + toggle('blackoutFadeEnabled', '黑幕渐变', '日常与自定义模式下，用 5 秒渐变进入黑屏') + slider('blackoutRecoveryMilliseconds'))}
     ${section('常规', 'settings', `
-      <div class="setting-row"><div class="setting-copy"><label for="theme">界面外观</label><p>根据使用环境，选择舒服的明暗</p></div><select id="theme"><option value="System">跟随系统</option><option value="Light">明亮</option><option value="Dark">黑暗</option></select></div>
-      ${toggle('startup', '开机自动启动', '登录 Windows 后，在托盘中运行')}
+      <div class="setting-row"><div class="setting-copy"><label for="theme">界面外观</label></div><select id="theme"><option value="System">跟随系统</option><option value="Light">明亮</option><option value="Dark">黑暗</option></select></div>
+      ${toggle('startup', '开机自动启动')}
     `)}
     <p class="page-footnote">关闭设置窗口后，fishcreen 会继续在托盘运行。</p>
   </main>
@@ -124,7 +123,7 @@ function updateMonitorDetail() {
 }
 function renderState(next: AppState, reset: boolean) {
   state = next;
-  el('version').textContent = `${next.version} · ${next.shell}`;
+  el('version').textContent = next.version;
   el('live-status').textContent = next.status;
   if (!reset) return;
   draft = structuredClone(next.settings);

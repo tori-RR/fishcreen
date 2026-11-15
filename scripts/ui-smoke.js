@@ -49,7 +49,7 @@ async (page) => {
   await page.getByRole('combobox', { name: '界面外观', exact: true }).selectOption('Light');
   await page.locator('main').evaluate(el => el.scrollTop = 0);
   await page.waitForTimeout(250);
-  assert(await page.getByRole('button', { name: '保存', exact: true }).evaluate(el => getComputedStyle(el).backgroundColor) === 'rgb(54, 107, 183)', '明亮主题主按钮颜色稳定');
+  assert(await page.getByRole('button', { name: '保存', exact: true }).evaluate(el => getComputedStyle(el).backgroundColor) === 'rgb(43, 43, 43)', '明亮主题黑灰主按钮颜色稳定');
   await page.screenshot({ path: '.impeccable/review/light.png' });
   return { checks, count: checks.length };
 }

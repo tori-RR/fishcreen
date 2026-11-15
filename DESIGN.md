@@ -2,31 +2,31 @@
 name: fishcreen
 description: Windows 副屏亮度与黑幕控制工具的设置界面。
 colors:
-  dark-bg: "#111419"
-  dark-panel: "#1b2028"
-  dark-text: "#e5e9f0"
-  dark-muted: "#a4aebd"
-  dark-line: "#2a313d"
-  dark-input: "#252c37"
-  dark-hover: "#303a48"
-  dark-accent: "#8db6ed"
-  dark-on-accent: "#152438"
-  dark-accent-soft: "#233a56"
-  dark-track: "#3a4555"
-  dark-thumb: "#eff4fc"
+  dark-bg: "#101010"
+  dark-panel: "#1c1c1c"
+  dark-text: "#ededed"
+  dark-muted: "#a6a6a6"
+  dark-line: "#303030"
+  dark-input: "#282828"
+  dark-hover: "#333333"
+  dark-accent: "#e5e5e5"
+  dark-on-accent: "#171717"
+  dark-accent-soft: "#2a2a2a"
+  dark-track: "#555555"
+  dark-thumb: "#f5f5f5"
   dark-success: "#92c8a6"
   dark-danger: "#ffb3b7"
-  light-bg: "#f4f5f7"
+  light-bg: "#f7f7f7"
   light-panel: "#fff"
-  light-text: "#20252e"
-  light-muted: "#626c7b"
-  light-line: "#e8ebef"
-  light-input: "#f2f4f7"
-  light-hover: "#e9edf3"
-  light-accent: "#366bb7"
+  light-text: "#222222"
+  light-muted: "#636363"
+  light-line: "#e5e5e5"
+  light-input: "#ededed"
+  light-hover: "#e3e3e3"
+  light-accent: "#2b2b2b"
   light-on-accent: "#fff"
-  light-accent-soft: "#e7eef9"
-  light-track: "#d9dfe7"
+  light-accent-soft: "#e9e9e9"
+  light-track: "#8a8a8a"
   light-thumb: "#fff"
   light-success: "#347851"
   light-danger: "#a72e35"
@@ -132,13 +132,13 @@ components:
 
 **Creative North Star: "安静的副屏调节台"**
 
-界面的表达来自现有实现：墨色背景承托低对比度分组，蓝色标识可操作和已选状态，信息沿设置行依次展开。它是一个 Windows 操作面板，不是展示页；屏幕、模式、参数和保存状态比装饰更重要。
+界面的表达来自 Codex 参考截图的黑灰层级：中性背景承托低对比度分组，明暗反差标识可操作和已选状态，信息沿设置行依次展开。蓝色只保留在应用图标中，绿色和红色分别表达运行与错误状态。它是一个 Windows 操作面板，不是展示页；屏幕、模式、参数和保存状态比装饰更重要。
 
 默认外观为黑暗，同时保留明亮与跟随系统。两套主题共享组件尺寸、字阶与交互结构，只替换语义色。系统字体、原生下拉选择和明确的键盘焦点保留桌面工具的熟悉感。
 
 **Key Characteristics:**
 
-- 墨色中性面与克制蓝色交互。
+- 黑灰中性面与明暗反差交互。
 - 低起伏分组、精确设置行、连续阅读顺序。
 - 滑块与可键入数值配对，单位紧邻数值。
 - 状态与操作分层，修改不打断当前任务。
@@ -149,9 +149,9 @@ components:
 
 ### Primary
 
-- **雾蓝交互色**（`dark-accent` / `light-accent`）：主按钮、选中滑轨、开启开关、恢复操作及焦点轮廓。
-- **蓝底反差文字**（`dark-on-accent` / `light-on-accent`）：只用于交互色实底上的文字。
-- **柔蓝提示底**（`dark-accent-soft` / `light-accent-soft`）：恢复按钮悬停及浏览器预览提示。
+- **中性交互色**（`dark-accent` / `light-accent`）：主按钮、选中滑轨、开启开关、恢复操作及焦点轮廓，以明暗反差建立层级。
+- **交互底反差色**（`dark-on-accent` / `light-on-accent`）：用于交互色实底上的文字与开启开关的拇指。
+- **柔灰提示底**（`dark-accent-soft` / `light-accent-soft`）：恢复按钮悬停及浏览器预览提示。
 
 ### Neutral
 
@@ -163,7 +163,7 @@ components:
 - **未选滑轨与滑块**（`*-track` / `*-thumb`）：滑块和开关共用的中性控制色。
 - **状态绿与错误色**（`*-success` / `*-danger`）：运行状态点及错误文字，不能取代可读文本。
 
-**The One Accent Rule.** 蓝色承担操作层级；绿色和红色仅表达状态，不用于普通设置分组的装饰。
+**The One Accent Rule.** 操作层级使用黑灰明暗反差；蓝色仅留在应用图标中，绿色和红色仅表达状态，不用于普通设置分组的装饰。
 
 ## Typography
 
@@ -184,6 +184,8 @@ components:
 ## Layout
 
 当前设置页采用单列纵向分组。窗口根布局由头部、可滚动内容、底部操作栏三行组成；只有内容区滚动。具体分组顺序与首屏策略记录在 `.impeccable/surfaces/ui-main-ts.md`，不把该页面策略推广为所有未来界面的限制。
+
+运行状态位于页头应用名称下方，替换原标语；内容区不再重复状态条。版本仅显示数字版本号。常规分组的界面外观与开机自动启动保留标签与控件，去掉两条解释性说明。
 
 常规内容左右留白为（36px）。分组间距为（27px），同组设置行最低高度为（79px），行内左右留白为（21px），上下留白为（17px）。文字区域可伸缩，滑块与数字区域在宽布局中保持稳定宽度（245px）。
 
@@ -213,9 +215,9 @@ components:
 
 操作层级明确，而不是三枚等权按钮。
 
-- **Primary:** 蓝色实底与反差文字，用于保存；基础最小高度（35px）。
+- **Primary:** 中性交互实底与反差文字，用于保存；基础最小高度（35px）。
 - **Secondary:** 中性控件底，用于取消和应用，悬停改用悬停底色。
-- **Text:** 蓝色文字与可选线性图标，用于立即恢复；悬停显示柔蓝底。
+- **Text:** 中性交互文字与可选线性图标，用于立即恢复；悬停显示柔灰底。
 - **Hover / Focus:** 颜色过渡为（120ms ease-out）；主按钮悬停提高明度。键盘焦点为交互色轮廓（2px），偏移（4px）。
 - **Disabled:** 降低不透明度（0.45），不执行悬停反馈。保存与应用在提交期间禁用；未修改时应用禁用。
 
@@ -232,14 +234,14 @@ components:
 原生语义优先，既能拖动也能精确键入。
 
 - **Select:** 原生下拉选择，控件底色、正文色、适度圆角；屏幕与模式的值允许省略显示，完整来源仍保留在选项中。
-- **Slider + number:** 蓝色已选轨道、中性未选轨道；数字右对齐，单位独立可读。范围、步长和说明来自字段定义，不在设计文档另设一套参数。
-- **Switch:** 使用真实 checkbox 和可点击标签，开启时轨道转为交互色；拇指移动过渡为（140ms ease-out）。
+- **Slider + number:** 中性交互色已选轨道、中性未选轨道；数字右对齐，单位独立可读。范围、步长和说明来自字段定义，不在设计文档另设一套参数。
+- **Switch:** 使用真实 checkbox 和可点击标签，开启时轨道转为交互色、拇指改用 `on-accent` 保持反差；拇指移动过渡为（140ms ease-out）。
 - **Disabled:** 相关滑块控件区域降低不透明度（0.4），同时禁用滑块和数字输入，标签与说明保留。
 - **Focus:** 使用可见轮廓；滑块外偏移（8px），开关轮廓落在可见轨道而非隐藏 checkbox 上。
 
 ### Status / Feedback
 
-运行状态与保存状态分别呈现。错误使用 `role="alert"` 的浮动消息，包含可读错误原因；正常状态使用状态语义和礼貌播报。浏览器预览明确标为示例数据，不暗示已控制真实显示器。
+运行状态在页头应用名称下方呈现，保存状态保留在底部操作栏；内容区不重复运行状态。错误使用 `role="alert"` 的浮动消息，包含可读错误原因；正常状态使用状态语义和礼貌播报。浏览器预览明确标为示例数据，不暗示已控制真实显示器。
 
 ### Application Mark
 
@@ -260,7 +262,7 @@ components:
 
 ### Don't:
 
-- **Don't** 将蓝色、绿色和错误色混用为无语义装饰。
+- **Don't** 将图标中的蓝色扩散到界面控件，或将绿色和错误色用作无语义装饰。
 - **Don't** 为静态参数分组加入玻璃、渐变装饰或大面积阴影。
 - **Don't** 隐藏精确数字输入，或把单位只放进不可见提示中。
 - **Don't** 把配置时长描述为硬件保证，也不要把预览误称为真实设备验证。
