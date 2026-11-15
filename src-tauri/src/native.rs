@@ -598,9 +598,24 @@ struct OverlayCoverage {
     region_current: bool,
     tracking: bool,
     last_refresh_error: Option<String>,
+    last_alpha: Option<u8>,
+    positioned_bounds: Option<Rect>,
 }
 
 impl OverlayCoverage {
+    fn clear_render_cache(&mut self) {
+        self.last_alpha = None;
+        self.positioned_bounds = None;
+    }
+
+    fn needs_alpha_update(&self, alpha: u8) -> bool {
+        self.last_alpha != Some(alpha)
+    }
+
+    fn needs_position_update(&self, bounds: &Rect) -> bool {
+        self.positioned_bounds.as_ref() != Some(bounds)
+    }
+
     fn stop_tracking(&mut self, window: HWND) {
         if self.tracking {
             unsafe { KillTimer(window, FOREGROUND_TIMER) };
@@ -610,6 +625,7 @@ impl OverlayCoverage {
 
     fn hide(&mut self, window: HWND) {
         self.stop_tracking(window);
+        self.clear_render_cache();
         self.bounds = None;
         self.show_active_window = false;
         self.region_current = false;
@@ -713,27 +729,33 @@ fn cover_window(
         }
         coverage.tracking = true;
     }
-    let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round().max(1.0) as u8;
-    if unsafe { SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA) } == 0 {
-        let error = win_error("更新黑幕透明度失败");
-        coverage.hide(window);
-        return Err(error);
+    let alpha = crate::overlay_animation::opacity_alpha(opacity);
+    if coverage.needs_alpha_update(alpha) {
+        if unsafe { SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA) } == 0 {
+            let error = win_error("更新黑幕透明度失败");
+            coverage.hide(window);
+            return Err(error);
+        }
+        coverage.last_alpha = Some(alpha);
     }
-    if unsafe {
-        SetWindowPos(
-            window,
-            HWND_TOPMOST,
-            bounds.left,
-            bounds.top,
-            width,
-            height,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
-    } == 0
-    {
-        let error = win_error("更新黑幕位置失败");
-        coverage.hide(window);
-        return Err(error);
+    if coverage.needs_position_update(&bounds) {
+        if unsafe {
+            SetWindowPos(
+                window,
+                HWND_TOPMOST,
+                bounds.left,
+                bounds.top,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+        } == 0
+        {
+            let error = win_error("更新黑幕位置失败");
+            coverage.hide(window);
+            return Err(error);
+        }
+        coverage.positioned_bounds = Some(bounds);
     }
     Ok(())
 }
@@ -1054,6 +1076,37 @@ mod tests {
 
     const PANEL_A: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_A#{GUID}";
     const PANEL_B: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_B#{GUID}";
+
+    #[test]
+    fn overlay_render_cache_deduplicates_alpha_and_position_independently() {
+        let bounds = Rect {
+            left: -1440,
+            top: 0,
+            right: 0,
+            bottom: 2560,
+        };
+        let mut coverage = OverlayCoverage::default();
+        assert!(coverage.needs_alpha_update(128));
+        assert!(coverage.needs_position_update(&bounds));
+        coverage.last_alpha = Some(128);
+        coverage.positioned_bounds = Some(bounds.clone());
+        assert!(!coverage.needs_alpha_update(128));
+        assert!(!coverage.needs_position_update(&bounds));
+        assert!(coverage.needs_alpha_update(129));
+        let moved = Rect {
+            left: 0,
+            top: 0,
+            right: 1440,
+            bottom: 2560,
+        };
+        assert!(coverage.needs_position_update(&moved));
+        assert!(!coverage.needs_alpha_update(128));
+        // Hiding invalidates both caches: showing the same frame must show and
+        // position the native window again, not silently suppress the command.
+        coverage.clear_render_cache();
+        assert!(coverage.needs_alpha_update(128));
+        assert!(coverage.needs_position_update(&bounds));
+    }
 
     fn panel(identity: &str) -> ActiveMonitor {
         ActiveMonitor {

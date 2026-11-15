@@ -1,6 +1,8 @@
 use crate::{
+    brightness_transition::{run_transition, RealClock},
     config::{self, AppSettings, Mode, Profile},
     native::{self, BrightnessHandle, Monitor, Overlay, Rect},
+    overlay_animation::{opacity_alpha, OverlayAnimator},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,7 +18,6 @@ use std::{
 };
 
 const CURSOR_INTERVAL: Duration = Duration::from_millis(75);
-const ANIMATION_INTERVAL: Duration = Duration::from_millis(16);
 const MONITOR_INTERVAL: Duration = Duration::from_secs(3);
 const RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_ATTEMPTS: u8 = 3;
@@ -257,7 +258,7 @@ struct Controller {
     immediate_restore: bool,
     opacity: f64,
     overlay_bounds: Option<Rect>,
-    overlay_recovery: Option<(Instant, f64)>,
+    overlay_animation: OverlayAnimator,
     target_available: bool,
     input_available: bool,
     system_events: Option<Receiver<native::SystemEvent>>,
@@ -310,7 +311,7 @@ impl Controller {
             immediate_restore: true,
             opacity: 0.0,
             overlay_bounds: None,
-            overlay_recovery: None,
+            overlay_animation: OverlayAnimator::default(),
             target_available: false,
             input_available: true,
             system_events,
@@ -350,7 +351,7 @@ impl Controller {
                         // cached frame so the next idle check can recreate it.
                         this.opacity = 0.0;
                         this.overlay_bounds = None;
-                        this.overlay_recovery = None;
+                        this.overlay_animation.reset();
                         this.shared
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -359,27 +360,24 @@ impl Controller {
                     }
                 }
             }
-            let now = Instant::now();
+            let mut now = Instant::now();
             if now >= this.next_monitor_refresh {
                 this.refresh_monitors();
+                now = Instant::now();
             }
             if now >= this.next_cursor_check {
                 this.next_cursor_check = now + CURSOR_INTERVAL;
                 this.check_cursor(now);
             }
-            this.animate_overlay(now);
+            this.animate_overlay(Instant::now());
+            let now = Instant::now();
             if !this.operation_pending
                 && this.attempts < MAX_ATTEMPTS
                 && this.retry_after.is_some_and(|at| now >= at)
             {
                 this.queue_brightness();
             }
-            let timeout =
-                if this.overlay_recovery.is_some() || (this.opacity > 0.0 && this.opacity < 1.0) {
-                    ANIMATION_INTERVAL
-                } else {
-                    CURSOR_INTERVAL
-                };
+            let timeout = this.next_wait(Instant::now());
             match commands.recv_timeout(timeout) {
                 Ok(Command::Apply(mut settings, reply)) => {
                     settings.normalize();
@@ -472,7 +470,6 @@ impl Controller {
     }
 
     fn refresh_monitors(&mut self) {
-        self.next_monitor_refresh = Instant::now() + MONITOR_INTERVAL;
         match native::enumerate_monitors() {
             Ok(monitors) => {
                 let available = monitors.iter().any(|m| {
@@ -507,6 +504,7 @@ impl Controller {
             }
             Err(error) => self.status(&format!("刷新显示器失败：{error}")),
         }
+        self.next_monitor_refresh = Instant::now() + MONITOR_INTERVAL;
     }
 
     fn check_cursor(&mut self, now: Instant) {
@@ -569,17 +567,17 @@ impl Controller {
             if inside {
                 self.begin_overlay_recovery(now);
             } else if outside_ms >= profile.leave_delay_milliseconds as u64 {
-                self.overlay_recovery = None;
-                self.set_overlay(&target, 1.0);
+                self.overlay_animation.set_target(1.0, Duration::ZERO, now);
             }
         } else if idle_ms >= profile.idle_blackout_milliseconds as u64 {
-            self.overlay_recovery = None;
-            let progress = if profile.blackout_fade_enabled {
-                (idle_ms - profile.idle_blackout_milliseconds as u64) as f64 / 5000.0
+            let duration = if profile.blackout_fade_enabled {
+                Duration::from_secs(5)
             } else {
-                1.0
+                Duration::ZERO
             };
-            self.set_overlay(&target, progress.clamp(0.0, 1.0));
+            let threshold = self.last_movement
+                + Duration::from_millis(profile.idle_blackout_milliseconds as u64);
+            self.overlay_animation.set_target(1.0, duration, threshold);
         }
     }
 
@@ -683,12 +681,21 @@ impl Controller {
     }
 
     fn set_overlay(&mut self, target: &Monitor, opacity: f64) {
-        let opacity = opacity.clamp(0.0, 1.0);
-        if opacity <= 0.0 {
-            self.hide_overlay();
+        let alpha = opacity_alpha(opacity);
+        let opacity = f64::from(alpha) / 255.0;
+        if alpha == 0 {
+            if self.overlay_bounds.is_some() || self.opacity > 0.0 {
+                let _ = self.overlay.hide();
+            }
+            self.opacity = 0.0;
+            self.overlay_bounds = None;
+            self.shared
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .overlay_opacity = 0.0;
             return;
         }
-        if (opacity - self.opacity).abs() < 0.001
+        if alpha == opacity_alpha(self.opacity)
             && self.overlay_bounds.as_ref() == Some(&target.bounds)
         {
             return;
@@ -706,12 +713,17 @@ impl Controller {
                     .unwrap_or_else(|e| e.into_inner())
                     .overlay_opacity = opacity;
             }
-            Err(error) => self.status(&format!("黑幕显示失败：{error}")),
+            Err(error) => {
+                // Clear the animation intent as well as its cached frame, so a
+                // failed final frame is retried by the next policy sample.
+                self.hide_overlay();
+                self.status(&format!("黑幕显示失败：{error}"));
+            }
         }
     }
 
     fn hide_overlay(&mut self) {
-        self.overlay_recovery = None;
+        self.overlay_animation.reset();
         self.opacity = 0.0;
         self.overlay_bounds = None;
         let _ = self.overlay.hide();
@@ -722,40 +734,83 @@ impl Controller {
     }
 
     fn begin_overlay_recovery(&mut self, now: Instant) {
-        if self.opacity > 0.0 && self.overlay_recovery.is_none() {
-            self.overlay_recovery = Some((now, self.opacity));
-        }
+        let duration = Duration::from_millis(
+            self.settings
+                .get_effective_profile()
+                .blackout_recovery_milliseconds as u64,
+        );
+        self.overlay_animation.set_target(0.0, duration, now);
     }
 
     fn animate_overlay(&mut self, now: Instant) {
-        let Some((started, initial)) = self.overlay_recovery else {
+        let frame = self.overlay_animation.tick(now);
+        if frame.is_none() && self.opacity <= 0.0 {
             return;
-        };
-        let duration = self
-            .settings
-            .get_effective_profile()
-            .blackout_recovery_milliseconds as f64;
-        let progress = now.duration_since(started).as_secs_f64() * 1000.0 / duration.max(1.0);
-        if progress >= 1.0 {
-            self.hide_overlay();
-        } else {
-            let opacity = initial * (1.0 - progress);
-            let target = self
-                .shared
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .monitors
-                .iter()
-                .find(|m| {
-                    m.stable_id
-                        .eq_ignore_ascii_case(&self.settings.target_stable_id)
-                })
-                .cloned();
-            if let Some(target) = target {
+        }
+        let target = self
+            .shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .monitors
+            .iter()
+            .find(|m| {
+                m.stable_id
+                    .eq_ignore_ascii_case(&self.settings.target_stable_id)
+            })
+            .cloned();
+        if let Some(target) = target {
+            if let Some(opacity) = overlay_frame_for_target(
+                frame,
+                self.opacity,
+                self.overlay_bounds.as_ref(),
+                &target.bounds,
+            ) {
                 self.set_overlay(&target, opacity);
             }
+        } else {
+            self.hide_overlay();
         }
     }
+
+    fn next_wait(&self, now: Instant) -> Duration {
+        let retry = if !self.operation_pending && self.attempts < MAX_ATTEMPTS {
+            self.retry_after
+        } else {
+            None
+        };
+        controller_wait(
+            now,
+            self.next_cursor_check,
+            self.next_monitor_refresh,
+            self.overlay_animation.next_deadline(),
+            retry,
+        )
+    }
+}
+
+fn overlay_frame_for_target(
+    animation_frame: Option<f64>,
+    current_opacity: f64,
+    current_bounds: Option<&Rect>,
+    target_bounds: &Rect,
+) -> Option<f64> {
+    animation_frame.or_else(|| {
+        (current_opacity > 0.0 && current_bounds != Some(target_bounds)).then_some(current_opacity)
+    })
+}
+
+fn controller_wait(
+    now: Instant,
+    cursor: Instant,
+    monitor: Instant,
+    animation: Option<Instant>,
+    retry: Option<Instant>,
+) -> Duration {
+    let deadline = animation
+        .into_iter()
+        .chain(retry)
+        .fold(cursor.min(monitor), Instant::min);
+    deadline.saturating_duration_since(now)
 }
 
 fn mode_status(mode: Mode) -> &'static str {
@@ -1249,38 +1304,25 @@ fn fade_brightness(
     cancel: Option<(&AtomicU64, u64)>,
 ) -> Result<bool, String> {
     let values = brightness_frames(start, target, duration_ms, frames, exponent);
-    let started = Instant::now();
     let frame_count = values.len();
-    for (index, value) in values.into_iter().enumerate() {
-        let due =
-            Duration::from_millis((duration_ms as u64 * (index as u64 + 1)) / frame_count as u64);
-        while started.elapsed() < due {
-            if cancelled(cancel) {
-                return Ok(false);
-            }
-            thread::sleep(
-                due.saturating_sub(started.elapsed())
-                    .min(Duration::from_millis(10)),
-            );
-        }
-        if cancelled(cancel) {
-            return Ok(false);
-        }
-        handle.set(value)?;
-    }
-    if cancelled(cancel) {
+    let report = run_transition(
+        &RealClock::new(),
+        &values,
+        start,
+        target,
+        Duration::from_millis(duration_ms as u64),
+        || cancelled(cancel),
+        |value| handle.set(value),
+        || handle.read().map(|brightness| brightness.current),
+    )?;
+    if !report.completed {
         return Ok(false);
     }
-    let verified = handle.read()?;
-    if verified.current != target {
-        return Err(format!(
-            "亮度读回不一致：目标 {target}，实际 {}",
-            verified.current
-        ));
-    }
     config::log(&format!(
-        "亮度 {start} → {target}，{frame_count} 帧，耗时 {} ms，已读回验证。",
-        started.elapsed().as_millis()
+        "亮度 {start} → {target}，计划 {frame_count} 帧，实际写入 {} 次，跳过 {} 个样本，耗时 {} ms，已读回验证。",
+        report.writes,
+        report.skipped,
+        report.elapsed.as_millis()
     ));
     Ok(true)
 }
@@ -1321,6 +1363,70 @@ mod tests {
 
     const PANEL_A: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_A#{GUID}";
     const PANEL_B: &str = r"\\?\DISPLAY#DELA0E7#INSTANCE_B#{GUID}";
+
+    #[test]
+    fn stable_overlay_relayouts_after_a_monitor_change_without_restarting_animation() {
+        let now = Instant::now();
+        let mut animator = OverlayAnimator::default();
+        animator.set_target(1.0, Duration::ZERO, now);
+        assert_eq!(animator.tick(now), Some(1.0));
+        assert!(animator.next_deadline().is_none());
+        let original = Rect {
+            left: -1440,
+            top: 0,
+            right: 0,
+            bottom: 2560,
+        };
+        let resized = Rect {
+            left: -1080,
+            top: 0,
+            right: 0,
+            bottom: 1920,
+        };
+        assert_eq!(
+            overlay_frame_for_target(None, 1.0, Some(&original), &resized),
+            Some(1.0)
+        );
+        assert_eq!(
+            overlay_frame_for_target(None, 1.0, Some(&original), &original),
+            None
+        );
+        assert_eq!(
+            overlay_frame_for_target(Some(0.5), 1.0, Some(&original), &resized),
+            Some(0.5)
+        );
+        assert_eq!(overlay_frame_for_target(None, 0.0, None, &resized), None);
+        assert!(animator.next_deadline().is_none());
+    }
+
+    #[test]
+    fn controller_waits_for_nearest_deadline_without_idle_animation_wakes() {
+        let now = Instant::now();
+        let cursor = now + Duration::from_millis(75);
+        let monitor = now + Duration::from_secs(3);
+        let frame = now + Duration::from_millis(16);
+        let retry = now + Duration::from_millis(5);
+        assert_eq!(
+            controller_wait(now, cursor, monitor, None, None),
+            Duration::from_millis(75)
+        );
+        assert_eq!(
+            controller_wait(now, cursor, monitor, Some(frame), None),
+            Duration::from_millis(16)
+        );
+        assert_eq!(
+            controller_wait(now, cursor, monitor, Some(frame), Some(retry)),
+            Duration::from_millis(5)
+        );
+        assert_eq!(
+            controller_wait(now, cursor, now + Duration::from_millis(3), None, None),
+            Duration::from_millis(3)
+        );
+        assert_eq!(
+            controller_wait(now, cursor, monitor, Some(now), None),
+            Duration::ZERO
+        );
+    }
 
     #[test]
     fn cursor_policy_pauses_during_explicit_recovery_confirmation() {

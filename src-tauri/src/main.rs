@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod brightness_transition;
 mod config;
 mod engine;
 mod native;
+mod overlay_animation;
 mod tray_refresh;
 
 use config::{AppSettings, Mode, ThemeMode};
