@@ -91,6 +91,7 @@ pub struct AppSettings {
     pub target_stable_id: String,
     pub mode: Mode,
     pub theme_mode: ThemeMode,
+    pub show_active_window: bool,
     pub custom_profile: Profile,
 }
 
@@ -100,6 +101,7 @@ impl Default for AppSettings {
             target_stable_id: "DELA0E7".into(),
             mode: Mode::Daily,
             theme_mode: ThemeMode::Dark,
+            show_active_window: false,
             custom_profile: Profile::daily(),
         }
     }
@@ -176,6 +178,9 @@ fn parse_settings(text: &str) -> AppSettings {
             "dark" => ThemeMode::Dark,
             _ => ThemeMode::System,
         };
+    }
+    if let Some(value) = get(&["ShowActiveWindow"]).and_then(parse_bool) {
+        settings.show_active_window = value;
     }
     let p = &mut settings.custom_profile;
     macro_rules! number {
@@ -270,6 +275,7 @@ fn settings_text(settings: &AppSettings) -> String {
     format!(
         concat!(
             "TargetStableId={}\r\nMode={:?}\r\nThemeMode={:?}\r\n",
+            "ShowActiveWindow={}\r\n",
             "CustomLeaveDelayMilliseconds={}\r\nCustomIdleBlackoutMilliseconds={}\r\n",
             "CustomBlackoutRecoveryMilliseconds={}\r\nCustomBrightnessRecoveryMilliseconds={}\r\n",
             "CustomBrightnessRecoveryFrames={}\r\nCustomBrightnessFadeDurationMilliseconds={}\r\n",
@@ -279,6 +285,7 @@ fn settings_text(settings: &AppSettings) -> String {
         settings.target_stable_id,
         settings.mode,
         settings.theme_mode,
+        settings.show_active_window,
         p.leave_delay_milliseconds,
         p.idle_blackout_milliseconds,
         p.blackout_recovery_milliseconds,
@@ -426,5 +433,68 @@ mod tests {
             parse_settings("Mode=Custom\n").custom_profile,
             Profile::daily()
         );
+    }
+
+    #[test]
+    fn missing_active_window_setting_keeps_full_coverage() {
+        assert!(!AppSettings::default().show_active_window);
+        for text in [
+            "",
+            "Movie\r\n",
+            "Mode=Custom\n",
+            "ShowActiveWindow=invalid\n",
+        ] {
+            assert!(!parse_settings(text).show_active_window);
+        }
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"mode":"Custom","customProfile":{"brightnessFadeFrames":41}}"#,
+        )
+        .unwrap();
+        assert!(!settings.show_active_window);
+        assert_eq!(settings.custom_profile.brightness_fade_frames, 41);
+    }
+
+    #[test]
+    fn active_window_setting_parses_and_roundtrips_without_losing_custom_values() {
+        let settings = parse_settings(concat!(
+            "Mode=Custom\nShowActiveWindow=True\nTargetStableId=TEST-MONITOR\n",
+            "CustomLeaveDelayMilliseconds=2200\nCustomBrightnessFadeFrames=45\n",
+            "CustomBrightnessRecoveryMilliseconds=800\nCustomBlackoutFadeEnabled=False\n"
+        ));
+        assert!(settings.show_active_window);
+        assert_eq!(settings.target_stable_id, "TEST-MONITOR");
+        assert_eq!(settings.custom_profile.leave_delay_milliseconds, 2200);
+        assert_eq!(settings.custom_profile.brightness_fade_frames, 45);
+        assert_eq!(
+            settings.custom_profile.brightness_recovery_milliseconds,
+            800
+        );
+        assert!(!settings.custom_profile.blackout_fade_enabled);
+        let persisted = settings_text(&settings);
+        assert!(persisted.contains("ShowActiveWindow=true\r\n"));
+        assert_eq!(parse_settings(&persisted), settings);
+        assert!(!parse_settings("ShowActiveWindow=FALSE\n").show_active_window);
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["showActiveWindow"], true);
+        assert!(json["customProfile"].get("showActiveWindow").is_none());
+    }
+
+    #[test]
+    fn active_window_setting_is_global_and_does_not_change_presets() {
+        let mut settings = AppSettings {
+            show_active_window: true,
+            ..AppSettings::default()
+        };
+        for (mode, expected) in [
+            (Mode::Daily, Profile::daily()),
+            (Mode::Movie, Profile::movie()),
+            (Mode::Off, Profile::daily()),
+        ] {
+            settings.mode = mode;
+            assert!(settings.show_active_window);
+            assert_eq!(settings.get_effective_profile(), expected);
+            assert_eq!(parse_settings(&settings_text(&settings)), settings);
+        }
     }
 }

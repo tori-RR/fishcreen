@@ -23,4 +23,6 @@ FORM: Single-page vertical groups, the user's explicit selection from the offere
 
 WINDOW: Default 480 × 880 logical pixels, minimum 420 × 520. Compact rows keep labels and 180px control groups side by side; sliders stack only at 440px and below. Text, exact number inputs and all parameters remain available.
 
+BLACKOUT COVERAGE: Show Active Window is a global checkbox, off by default for full coverage. Enabling it leaves the current foreground window's visible-frame rectangle uncovered where it intersects the selected display. It persists across presets without entering Custom and does not change hardware brightness. Switch labels provide 44 × 44px hit targets while retaining the existing 38 × 22px visual track.
+
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

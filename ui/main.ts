@@ -69,7 +69,7 @@ el('app').innerHTML = `
     `)}
     ${section('离开时，渐渐变暗', 'dim', slider('leaveDelayMilliseconds') + toggle('brightnessFadeEnabled', '亮度渐变', '使用前快后慢的曲线降低硬件亮度') + slider('brightnessFadeDurationMilliseconds') + slider('brightnessFadeFrames') + slider('brightnessFadeExponent'), '硬件亮度通过 DDC 控制。帧数较高时，显示器响应可能延长实际过渡时间。')}
     ${section('回来时，恢复亮度', 'return', slider('brightnessRecoveryMilliseconds') + slider('brightnessRecoveryFrames'))}
-    ${section('空闲时，收起画面', 'moon', slider('idleBlackoutMilliseconds') + toggle('blackoutFadeEnabled', '黑幕渐变', '日常与自定义模式下，用 5 秒渐变进入黑屏') + slider('blackoutRecoveryMilliseconds'))}
+    ${section('空闲时，收起画面', 'moon', slider('idleBlackoutMilliseconds') + toggle('showActiveWindow', '显示活跃窗口', '关闭时完全覆盖；开启时不遮挡当前前台窗口') + toggle('blackoutFadeEnabled', '黑幕渐变', '日常与自定义模式下，用 5 秒渐变进入黑屏') + slider('blackoutRecoveryMilliseconds'))}
     ${section('常规', 'settings', `
       <div class="setting-row"><div class="setting-copy"><label for="theme">界面外观</label></div><select id="theme"><option value="System">跟随系统</option><option value="Light">明亮</option><option value="Dark">黑暗</option></select></div>
       ${toggle('startup', '开机自动启动')}
@@ -137,6 +137,7 @@ function renderState(next: AppState, reset: boolean) {
   el<HTMLSelectElement>('mode').value = draft.mode;
   el<HTMLSelectElement>('theme').value = draft.themeMode;
   el<HTMLInputElement>('startup').checked = startup;
+  el<HTMLInputElement>('showActiveWindow').checked = draft.showActiveWindow;
   updateMonitorDetail(); updateModeHint(); updateControls(); setTheme(draft.themeMode);
   dirty = false;
   el<HTMLButtonElement>('apply').disabled = true;
@@ -169,6 +170,7 @@ el<HTMLSelectElement>('mode').addEventListener('change', e => {
 el<HTMLSelectElement>('theme').addEventListener('change', e => { draft.themeMode = (e.target as HTMLSelectElement).value as ThemeMode; setTheme(draft.themeMode); setDirty(); });
 systemTheme.addEventListener('change', () => { if (draft?.themeMode === 'System') setTheme('System'); });
 el<HTMLInputElement>('startup').addEventListener('change', e => { startup = (e.target as HTMLInputElement).checked; setDirty(); });
+el<HTMLInputElement>('showActiveWindow').addEventListener('change', e => { draft.showActiveWindow = (e.target as HTMLInputElement).checked; setDirty(); });
 
 function showError(error: unknown) {
   el('error').textContent = `操作未完成：${String(error)}`;
@@ -210,7 +212,7 @@ async function init() {
   setTheme('Dark');
   try {
     const initial: AppState = preview ? {
-      settings: { targetStableId: 'DELA0E7', mode: 'Daily', themeMode: 'Dark', customProfile: structuredClone(daily) },
+      settings: { targetStableId: 'DELA0E7', mode: 'Daily', themeMode: 'Dark', showActiveWindow: false, customProfile: structuredClone(daily) },
       monitors: [{ stableId: 'DELA0E7', name: 'Dell S2417DG', gdiName: '\\\\.\\DISPLAY1', bounds: { left: -1440, top: 0, right: 0, bottom: 2560 }, primary: false }],
       status: '日常模式 · 等待鼠标活动', brightnessDimmed: false, overlayOpacity: 0, startupEnabled: false, version: '1.2.0', shell: 'Tauri',
     } : await invoke<AppState>('get_state');

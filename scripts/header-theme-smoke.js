@@ -31,6 +31,7 @@ async (page) => {
   assert(structure.generalCheckboxSemantics, '开机自动启动保留原生checkbox语义');
   assert(structure.brokenDescriptions.length === 0, `aria-describedby无悬挂引用: ${structure.brokenDescriptions.join(', ')}`);
   const preservedDescriptions = [
+    '关闭时完全覆盖；开启时不遮挡当前前台窗口',
     '使用前快后慢的曲线降低硬件亮度',
     '离开所选屏幕后，等待多久开始调暗',
     '0 秒为立即变暗',
@@ -100,7 +101,7 @@ async (page) => {
       assert(colors.text.length >= 30, `${name}: 覆盖页头参数区及页脚的文本对比度`);
       assert(colors.failures.length === 0, `${name}: 可用文本满足WCAG AA: ${JSON.stringify(colors.failures)}`);
       const switches = [];
-      for (const id of ['brightnessFadeEnabled', 'blackoutFadeEnabled', 'startup']) {
+      for (const id of ['brightnessFadeEnabled', 'blackoutFadeEnabled', 'showActiveWindow', 'startup']) {
         const input = page.locator(`#${id}`);
         const original = await input.isChecked();
         const track = page.locator(`#${id} + span`);

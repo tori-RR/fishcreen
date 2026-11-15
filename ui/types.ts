@@ -16,6 +16,7 @@ export interface Settings {
   targetStableId: string;
   mode: Mode;
   themeMode: ThemeMode;
+  showActiveWindow: boolean;
   customProfile: Profile;
 }
 export interface Monitor {

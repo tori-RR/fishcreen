@@ -310,6 +310,18 @@ impl Controller {
                             this.transition(BrightnessIntent::Restored, true, true);
                         }
                     }
+                    native::SystemEvent::OverlayInvalidated => {
+                        // The native thread already hid the failed overlay. Drop the
+                        // cached frame so the next idle check can recreate it.
+                        this.opacity = 0.0;
+                        this.overlay_bounds = None;
+                        this.overlay_recovery = None;
+                        this.shared
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .overlay_opacity = 0.0;
+                        this.status("黑幕区域更新失败，将自动重试");
+                    }
                 }
             }
             let now = Instant::now();
@@ -593,7 +605,11 @@ impl Controller {
         {
             return;
         }
-        match self.overlay.cover(target.bounds.clone(), opacity) {
+        match self.overlay.cover(
+            target.bounds.clone(),
+            opacity,
+            self.settings.show_active_window,
+        ) {
             Ok(()) => {
                 self.opacity = opacity;
                 self.overlay_bounds = Some(target.bounds.clone());
