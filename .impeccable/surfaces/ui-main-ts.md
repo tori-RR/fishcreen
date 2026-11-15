@@ -21,4 +21,6 @@ FIRST VIEWPORT: A small fishcreen header with the existing icon and a restore ac
 
 FORM: Single-page vertical groups, the user's explicit selection from the offered layouts (candidate 1; surface seed b45f1687). Code-first explicitly selected. The header/content/footer layout and single scrolling region stay unchanged. General appearance and startup rows retain their labels and controls but omit their two explanatory hints. The signature interaction is the live readout beside each slider, with number inputs allowing precise keyboard control and a restrained custom-preset transition.
 
+WINDOW: Default 480 × 880 logical pixels, minimum 420 × 520. Compact rows keep labels and 180px control groups side by side; sliders stack only at 440px and below. Text, exact number inputs and all parameters remain available.
+
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

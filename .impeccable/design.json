@@ -53,7 +53,7 @@
     ],
     "breakpoints": [
       { "name": "compact", "value": "650px" },
-      { "name": "stacked-controls", "value": "490px" }
+      { "name": "stacked-controls", "value": "440px" }
     ]
   },
   "components": [

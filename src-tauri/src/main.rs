@@ -91,8 +91,8 @@ fn show_settings(app: &AppHandle) {
     let theme = app.state::<AppCore>().engine.snapshot().settings.theme_mode;
     let result = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
         .title("fishcreen 设置")
-        .inner_size(760.0, 880.0)
-        .min_inner_size(540.0, 520.0)
+        .inner_size(480.0, 880.0)
+        .min_inner_size(420.0, 520.0)
         .center()
         .theme(window_theme(theme))
         .build();

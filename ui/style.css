@@ -63,14 +63,14 @@
   .preview-note { margin: 0 0 17px; padding: 10px 15px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   @media (max-width: 650px) {
-    .app-header { padding: 23px 22px 20px; }
+    .app-header { padding: 23px 22px 20px; gap: 12px; }
     main { padding-inline: 20px; }
     .action-bar { padding-inline: 22px; }
     .setting-row { gap: 16px; margin-inline: 17px; }
-    .slider-control { flex-basis: 207px; gap: 11px; }
+    .slider-control { flex: 0 0 180px; gap: 11px; }
     .setting-copy { flex-basis: 185px; }
   }
-  @media (max-width: 490px) {
+  @media (max-width: 440px) {
     .slider-row { align-items: stretch; flex-direction: column; gap: 10px; }
     .slider-row .setting-copy { flex: 0 0 auto; }
     .slider-control { flex: 0 0 auto; }
@@ -94,7 +94,7 @@
   .text-button { display: flex; align-items: center; justify-content: center; gap: 7px; background: transparent; color: var(--accent); padding-inline: 10px; flex-shrink: 0; }
   .text-button:hover:not(:disabled) { background: var(--accent-soft); }
   .text-button svg { width: 16px; height: 16px; }
-  select { appearance: auto; max-width: 250px; width: 217px; min-width: 120px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: var(--input); color: var(--text); font-size: 12px; cursor: pointer; text-overflow: ellipsis; }
+  select { appearance: auto; max-width: 250px; inline-size: 217px; min-width: 120px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: var(--input); color: var(--text); font-size: 12px; cursor: pointer; text-overflow: ellipsis; }
   input[type=range] { appearance: none; height: 4px; border-radius: 3px; width: 100%; min-width: 60px; margin: 15px 0; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--track) var(--fill, 0%)); cursor: pointer; }
   input[type=range]::-webkit-slider-thumb { appearance: none; width: 15px; height: 15px; border: 0; border-radius: 50%; background: var(--thumb); box-shadow: 0 1px 5px #0004; }
   input[type=range]:focus-visible { outline-offset: 8px; }
@@ -113,5 +113,6 @@
   ::-webkit-scrollbar { width: 7px; }
   ::-webkit-scrollbar-thumb { border-radius: 5px; background: var(--track); }
   ::-webkit-scrollbar-track { background: transparent; }
+  @media (max-width: 650px) { select { inline-size: 180px; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 }
